@@ -1,6 +1,12 @@
 #Android makefile to build kernel as a part of Android Build
 PERL		= perl
 
+# MODIFIED-BEGIN by linjian.xiang, 2019-04-29,BUG-7672407
+ifeq ($(AB_SYSTEM_ENABLE),true)
+    LOCAL_CFLAGS += -DAB_SYSTEM_ENABLE=1
+endif
+# MODIFIED-END by linjian.xiang,BUG-7672407
+
 KERNEL_TARGET := $(strip $(INSTALLED_KERNEL_TARGET))
 ifeq ($(KERNEL_TARGET),)
 INSTALLED_KERNEL_TARGET := $(PRODUCT_OUT)/kernel
