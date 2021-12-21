@@ -286,6 +286,7 @@ int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					u16 brightness);
 int mipi_dsi_dcs_get_display_brightness(struct mipi_dsi_device *dsi,
 					u16 *brightness);
+int mipi_dsi_dcs_set_fod(struct mipi_dsi_device *dsi, bool enable);
 
 /**
  * struct mipi_dsi_driver - DSI driver

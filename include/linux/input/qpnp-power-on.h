@@ -61,6 +61,19 @@ enum pon_restart_reason {
 	PON_RESTART_REASON_DMVERITY_CORRUPTED	= 0x04,
 	PON_RESTART_REASON_DMVERITY_ENFORCE	= 0x05,
 	PON_RESTART_REASON_KEYS_CLEAR		= 0x06,
+	// Defect: 8396521, add oem reset reason
+	OEM_RESET_KERNEL_PANIC         = 0x21,
+	OEM_RESET_MODEM                = 0x22,
+	OEM_RESET_WCNSS                = 0x23,
+	OEM_RESET_ADSP                 = 0x24,
+	OEM_RESET_VENUS                = 0x25,
+	OEM_RESET_SLPI                 = 0x26,
+	OEM_RESET_GPU                  = 0x27,
+	OEM_RESET_CDSP                 = 0x28,
+	OEM_RESET_A512_ZAP             = 0x29,
+	OEM_RESET_SOFTWARE_REBOOT      = 0x2a,
+	OEM_RESET_WATCHDOG_BARK        = 0x2b,
+	OEM_RESET_CRASH_UNKNOWN        = 0x2c,
 };
 
 #ifdef CONFIG_INPUT_QPNP_POWER_ON

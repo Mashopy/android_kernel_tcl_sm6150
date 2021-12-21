@@ -417,6 +417,162 @@ struct drm_msm_power_ctrl {
 #define DRM_IOCTL_MSM_POWER_CTRL DRM_IOW((DRM_COMMAND_BASE + \
 			DRM_MSM_POWER_CTRL), struct drm_msm_power_ctrl)
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3) || defined(PXLW_IRIS3)
+#define DRM_MSM_IRIS_OPERATE_CONF      0x50
+#define DRM_MSM_IRIS_OPERATE_TOOL      0x51
+#define PANEL_BL_MAX_RATIO 10000
+
+enum iris_oprt_type {
+	IRIS_OPRT_TOOL_DSI,
+	IRIS_OPRT_CONFIGURE,
+	IRIS_OPRT_CONFIGURE_NEW,
+	IRIS_OPRT_CONFIGURE_NEW_GET,
+	IRIS_OPRT_MAX_TYPE,
+};
+
+struct msmfb_mipi_dsi_cmd {
+	__u8 dtype;
+	__u8 vc;
+#define MSMFB_MIPI_DSI_COMMAND_LAST 1
+#define MSMFB_MIPI_DSI_COMMAND_ACK  2
+#define MSMFB_MIPI_DSI_COMMAND_HS   4
+#define MSMFB_MIPI_DSI_COMMAND_BLLP 8
+#define MSMFB_MIPI_DSI_COMMAND_DEBUG 16
+#define MSMFB_MIPI_DSI_COMMAND_TO_PANEL 32
+#define MSMFB_MIPI_DSI_COMMAND_T 64
+
+	__u32 iris_ocp_type;
+	__u32 iris_ocp_addr;
+	__u32 iris_ocp_value;
+	__u32 iris_ocp_size;
+
+	__u16 flags;
+	__u16 length;
+	__u8 *payload;
+	__u8 response[16];
+};
+
+struct msm_iris_operate_value {
+	unsigned int type;
+	unsigned int count;
+	void *values;
+};
+
+enum iris_config_type {
+	IRIS_PEAKING = 0,
+	IRIS_CHIP_VERSION = 33,      // 0x0 : IRIS2, 0x1 : IRIS2-plus, 0x2 : IRIS3-lite
+	IRIS_LUX_VALUE = 34,
+	IRIS_CCT_VALUE = 35,
+	IRIS_READING_MODE = 36,
+
+	IRIS_CM_6AXES = 37,
+	IRIS_CM_FTC_ENABLE = 38,
+	IRIS_CM_COLOR_TEMP_MODE = 39,
+	IRIS_CM_COLOR_GAMUT = 40,
+	IRIS_LCE_MODE = 41,
+	IRIS_LCE_LEVEL = 42,
+	IRIS_GRAPHIC_DET_ENABLE = 43,
+	IRIS_AL_ENABLE = 44,			//AL means ambient light
+	IRIS_DBC_LEVEL = 45,
+	IRIS_DEMO_MODE = 46,
+	IRIS_SDR2HDR = 47,
+	IRIS_COLOR_TEMP_VALUE = 48,
+	IRIS_HDR_MAXCLL = 49,
+	IRIS_CM_COLOR_GAMUT_PRE = 51,
+	IRIS_DBC_LCE_POWER= 52,
+	IRIS_DBC_LCE_DATA_PATH = 53,
+	IRIS_DYNAMIC_POWER_CTRL = 54,
+	IRIS_DMA_LOAD = 55,
+	IRIS_ANALOG_BYPASS_MODE = 56,
+	IRIS_PANEL_TYPE = 57,
+	IRIS_HDR_PANEL_NITES_SET = 60,
+	IRIS_PEAKING_IDLE_CLK_ENABLE = 61,
+	IRIS_CM_MAGENTA_GAIN = 62,
+	IRIS_CM_RED_GAIN = 63,
+	IRIS_CM_YELLOW_GAIN = 64,
+	IRIS_CM_GREEN_GAIN = 65,
+	IRIS_CM_BLUE_GAIN = 66,
+	IRIS_CM_CYAN_GAIN = 67,
+	IRIS_BLC_PWM_ENABLE = 68,
+	IRIS_DBC_LED_GAIN = 69,
+	IRIS_SCALER_FILTER_LEVEL = 70,
+	IRIS_CCF1_UPDATE = 71,
+	IRIS_CCF2_UPDATE = 72,
+	IRIS_FW_UPDATE = 73,
+	IRIS_HUE_SAT_ADJ = 74,
+	IRIS_SCALER_PP_FILTER_LEVEL = 76,
+	IRIS_CSC_MATRIX = 75,
+	IRIS_HDR_PREPARE = 90,
+	IRIS_HDR_COMPLETE = 91,
+	IRIS_MCF_DATA = 92,
+	IRIS_Y5P = 93,
+	IRIS_PANEL_NITS = 99,
+
+	IRIS_DBG_TARGET_REGADDR_VALUE_GET = 103,
+	IRIS_DBG_TARGET_REGADDR_VALUE_SET = 105,
+	IRIS_DBG_KERNEL_LOG_LEVEL = 106,
+	IRIS_DBG_SEND_PACKAGE = 107,
+	IRIS_DBG_TARGET_REGADDR_VALUE_SET2 = 112,
+	IRIS_DEBUG_CAP = 113,
+	IRIS_POWER_MODE_CHECK=114, // MODIFIED by ji.chen, 2019-08-16,BUG-8256828
+
+	IRIS_MODE_SET = 120,
+	IRIS_VIDEO_FRAME_RATE_SET = 121,
+	IRIS_OUT_FRAME_RATE_SET = 122,	// debug only
+	IRIS_OSD_ENABLE = 123,
+	IRIS_WORK_MODE = 126,	// [23-16]: pwil mode, [15-8]: tx mode, [7-0]: rx mode
+	IRIS_FRC_LOW_LATENCY = 127,
+	IRIS_PANEL_TE = 128,
+	IRIS_AP_TE = 129,
+
+	IRIS_CONFIG_TYPE_MAX
+};
+
+enum SDR2HDR_CASE{
+	SDR2HDR_Bypass = 0,
+	HDR10In_ICtCp,
+	HDR10In_YCbCr,
+	ICtCpIn_YCbCr,
+	SDR709_2_709,
+	SDR709_2_p3,
+	SDR709_2_2020,
+};
+
+enum SDR2HDR_LUT_GAMMA_INDEX{
+	SDR2HDR_LUT_GAMMA_120 = 0,
+	SDR2HDR_LUT_GAMMA_106 = 1,
+	SDR2HDR_LUT_GAMMA_102 = 2,
+	SDR2HDR_LUT_GAMMA_100 = 3,
+	SDR2HDR_LUT_GAMMA_MAX
+};
+
+struct msmfb_iris_ambient_info {
+	uint32_t ambient_lux;
+	uint32_t ambient_bl_ratio;
+	void *lut_lut2_payload;
+};
+
+struct msmfb_iris_maxcll_info {
+    uint32_t mMAXCLL;
+    void *lut_luty_payload;
+    void *lut_lutuv_payload;
+};
+
+enum iris_chip_version {
+	IRIS2_VER = 0,
+	IRIS2PLUS_VER,
+	IRIS3LITE_VER,
+	IRIS5_VER,
+	UNKOWN_VER
+};
+
+#define DRM_IOCTL_MSM_IRIS_OPERATE_CONF     DRM_IOW (DRM_COMMAND_BASE + DRM_MSM_IRIS_OPERATE_CONF, struct msm_iris_operate_value)
+#define DRM_IOCTL_MSM_IRIS_OPERATE_TOOL     DRM_IOW (DRM_COMMAND_BASE + DRM_MSM_IRIS_OPERATE_TOOL, struct msm_iris_operate_value)
+
+#endif // CONFIG_PXLW_IRIS3 || PXLW_IRIS3
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
+
 #if defined(__cplusplus)
 }
 #endif

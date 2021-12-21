@@ -51,4 +51,8 @@ void destroy_votable(struct votable *votable);
 void lock_votable(struct votable *votable);
 void unlock_votable(struct votable *votable);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+void dump_icl_votable(struct votable *votable);
+#endif
+
 #endif /* __PMIC_VOTER_H */

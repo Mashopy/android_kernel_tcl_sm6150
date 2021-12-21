@@ -73,6 +73,11 @@ int persistent_ram_write(struct persistent_ram_zone *prz, const void *s,
 int persistent_ram_write_user(struct persistent_ram_zone *prz,
 			      const void __user *s, unsigned int count);
 
+/* ADD-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+void persistent_ram_flowing_update(struct persistent_ram_zone *srcprz,
+		struct persistent_ram_zone *tgtprz);
+size_t persistent_ram_get_buffer_size(struct persistent_ram_zone *prz);
+/* ADD-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
 void persistent_ram_save_old(struct persistent_ram_zone *prz);
 size_t persistent_ram_old_size(struct persistent_ram_zone *prz);
 void *persistent_ram_old(struct persistent_ram_zone *prz);
