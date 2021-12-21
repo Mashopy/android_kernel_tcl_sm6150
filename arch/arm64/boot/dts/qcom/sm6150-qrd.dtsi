@@ -255,6 +255,7 @@
 	status = "ok";
 };
 
+/*
 &soc {
 	fpc1020 {
 		compatible = "fpc,fpc1020";
@@ -275,6 +276,7 @@
 	};
 
 };
+*/
 
 /* Primary USB port related High Speed PHY */
 &qusb_phy0 {

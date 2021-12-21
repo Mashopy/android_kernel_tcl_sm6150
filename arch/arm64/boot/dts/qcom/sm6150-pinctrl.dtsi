@@ -188,7 +188,8 @@
 				};
 			};
 		};
-
+		//MODIFIED by siguo.cheng, 2019-05-06,BUG-7689227
+		/*
 		fpc_reset_int {
 			fpc_reset_low: reset_low {
 				mux {
@@ -226,6 +227,118 @@
 					pins = "gpio93";
 					drive-strength = <2>;
 					bias-pull-down;
+					input-enable;
+				};
+			};
+		};
+		*/ // MODIFIED by siguo.cheng, 2019-05-06,BUG-7689227
+
+
+		/* gpio for focaltech fingerprint */
+		focal_fp {
+			focal_pwr_active: focal_pwr_active{
+				mux {
+					pins = "gpio95";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio95";
+					drive-strength = <2>;
+					bias-disable = <0>;
+					output-high;
+				};
+			};
+
+			focal_reset_reset: focal_reset_reset{
+				mux {
+					pins = "gpio94";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio94";
+					drive-strength = <2>;
+					bias-disable = <0>;
+					output-low;
+				};
+			};
+
+			focal_reset_active: focal_reset_active{
+				mux {
+					pins = "gpio94";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio94";
+					drive-strength = <2>;
+					bias-disable = <0>;
+					output-high;
+				};
+			};
+
+			focal_irq_active: focal_irq_active {
+				mux {
+					pins = "gpio93";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio93";
+					drive-strength = <2>;
+					bias-disable = <0>;
+					input-enable;
+				};
+			};
+		};
+
+		/* gpio for goodix fingerprint */
+		goodix_fp {
+			goodix_pwr_active: goodix_pwr_active{
+				mux {
+					pins = "gpio95";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio95";
+					drive-strength = <2>;
+					bias-disable = <0>;
+					output-high;
+				};
+			};
+
+			goodix_reset_reset: goodix_reset_reset{
+				mux {
+					pins = "gpio94";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio94";
+					drive-strength = <2>;
+					bias-disable = <0>;
+					output-low;
+				};
+			};
+
+			goodix_reset_active: goodix_reset_active{
+				mux {
+					pins = "gpio94";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio94";
+					drive-strength = <2>;
+					bias-disable = <0>;
+					output-high;
+				};
+			};
+
+			goodix_irq_active: goodix_irq_active {
+				mux {
+					pins = "gpio93";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio93";
+					drive-strength = <2>;
+					bias-disable = <0>;
 					input-enable;
 				};
 			};
@@ -698,6 +811,34 @@
 
 				config {
 					pins = "gpio91";
+					drive-strength = <2>;   /* 2 mA */
+					bias-pull-down;         /* PULL DOWN */
+				};
+			};
+		};
+
+		pmx_iris: pmx_sde_iris {
+			iris_dsi_active: iris_dsi_active {
+				mux {
+					pins = "gpio7";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio7";
+					drive-strength = <8>;   /* 8 mA */
+					bias-disable = <0>;   /* no pull */
+				};
+			};
+
+			iris_dsi_suspend: iris_dsi_suspend {
+				mux {
+					pins = "gpio7";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio7";
 					drive-strength = <2>;   /* 2 mA */
 					bias-pull-down;         /* PULL DOWN */
 				};

@@ -1,0 +1,48 @@
+/* Copyright (C) 2019 Tcl Corporation Limited */
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/clock/qcom,camcc-sm6150.h>
+
+#include "sm6150-audio-overlay.dtsi"
+#include "sm6150-t1.dtsi"
+
+/ {
+	model = "MTP";
+	compatible = "qcom,sm6150-mtp", "qcom,sm6150", "qcom,mtp";
+	/* MODIFIED-BEGIN by hongwei.tian, 2019-06-15,BUG-7850855*/
+	qcom,board-id = <0x00000028 0>;
+};
+
+&dsi_ft8917_video {
+
+		qcom,mdss-dsi-display-timings {
+			timing@0 {
+				qcom,mdss-dsi-on-command = [
+					15 01 00 00 00 00 02 51 FF
+					15 01 00 00 00 00 02 53 24
+					15 01 00 00 00 00 02 55 00
+					05 01 00 00 01 00 02 11 00
+					05 01 00 00 01 00 02 29 00];
+			};
+		};
+};
+&pm6150l_wled {
+	qcom,en-cabc;
+	qcom,cabc-sel = <1>;
+	/* MODIFIED-END by hongwei.tian,BUG-7850855*/
+};
+

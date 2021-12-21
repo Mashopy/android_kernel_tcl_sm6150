@@ -97,7 +97,7 @@
 		qcom,sde-cdm-size = <0x224>;
 
 
-		qcom,sde-dither-off = <0x30e0 0x30e0 0x30e0 0x30e0>;
+		qcom,sde-dither-off = <0x30e0 0x30e0 0x0>;
 		qcom,sde-dither-version = <0x00010000>;
 		qcom,sde-dither-size = <0x20>;
 
@@ -139,7 +139,7 @@
 		qcom,sde-has-cdp;
 
 		qcom,sde-has-dim-layer;
-		qcom,sde-has-idle-pc;
+		//qcom,sde-has-idle-pc; // MODIFIED by Haojun Chen, 2019-05-11,BUG-7765094
 
 		qcom,sde-max-bw-low-kbps = <4800000>;
 		qcom,sde-max-bw-high-kbps = <4800000>;
@@ -433,11 +433,11 @@
 						ff 06
 						ff 06
 						ff 00];
-		qcom,platform-lane-config = [00 00 10 0f
-						00 00 10 0f
-						00 00 10 0f
-						00 00 10 0f
-						00 00 10 8f];
+		qcom,platform-lane-config = [00 00 ff 0f
+						00 00 ff 0f
+						00 00 ff 0f
+						00 00 ff 0f
+						00 00 ff 8f];
 		qcom,platform-regulator-settings = [1d 1d 1d 1d 1d];
 		qcom,phy-supply-entries {
 			#address-cells = <1>;

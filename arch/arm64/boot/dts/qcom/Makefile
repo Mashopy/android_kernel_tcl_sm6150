@@ -131,8 +131,9 @@ dtb-$(CONFIG_ARCH_SDMSHRIKE)	+= sdmshrike-rumi.dtb \
 	sa8195p-adp-star.dtb
 endif
 
+# [TCTNB-SOT][Performance]Begin added by Alvin.Lee for XR8707746 on 2019/12/18
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
-	dtbo-$(CONFIG_ARCH_SM6150) += \
+	dtbo-$(CONFIG_ARCH_SM6150_NOT_BUILD) += \
 		sm6150-rumi-overlay.dtbo \
 		sm6150-qrd-overlay.dtbo \
 		sm6150-idp-overlay.dtbo \
@@ -190,7 +191,18 @@ dtb-$(CONFIG_ARCH_SM6150)	+= sm6150-rumi.dtb \
 endif
 
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
-	dtbo-$(CONFIG_ARCH_SDMMAGPIE) += \
+	dtbo-$(CONFIG_ARCH_SM6150) += \
+		sm6150-t1-overlay.dtbo \
+		sm6150-t1-v00-overlay.dtbo \
+		sm6150-t1-pro-overlay.dtbo
+
+sm6150-t1-overlay.dtbo-base := sm6150.dtb
+sm6150-t1-v00-overlay.dtbo-base := sm6150.dtb
+sm6150-t1-pro-overlay.dtbo-base := sm6150.dtb
+endif
+
+ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
+	dtbo-$(CONFIG_ARCH_SDMMAGPIE_NOT_BUILD) += \
 		sdmmagpie-idp-overlay.dtbo \
 		sdmmagpie-atp-overlay.dtbo \
 		sdmmagpie-rumi-overlay.dtbo \
@@ -224,6 +236,7 @@ dtb-$(CONFIG_ARCH_SDMMAGPIE)	+= sdmmagpie-rumi.dtb \
 	sdmmagpie-usbc-idp.dtb \
 	sdmmagpie-dual-display-idp.dtb
 endif
+# [TCTNB-SOT][Performance]End added by Alvin.Lee for XR8707746 on 2019/12/18
 
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 	dtbo-$(CONFIG_ARCH_TRINKET) += \

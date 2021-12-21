@@ -1,0 +1,19 @@
+menu "Products selection"
+config TCT_SM6150_COMMON
+	bool "SM6150 TCT COMMON CONFIG"
+	depends on ARCH_SM6150
+	help
+	  Support for TCT common device configration.
+
+config TCT_SM6150_T1
+	bool "SM6150 TCT T1"
+	depends on ARCH_SM6150
+	help
+	  Support for TCT T1 device.
+
+config TCT_SM6150_T1_PRO
+        bool "SM6150 TCT T1 PRO"
+        depends on ARCH_SM6150
+        help
+          Support for TCT T1 PRO device.
+endmenu

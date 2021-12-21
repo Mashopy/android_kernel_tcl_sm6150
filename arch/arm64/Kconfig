@@ -1457,6 +1457,8 @@ source "arch/arm64/kvm/Kconfig"
 
 source "arch/arm64/Kconfig.debug"
 
+source "arch/arm64/Kconfig.products"
+
 source "security/Kconfig"
 
 source "crypto/Kconfig"

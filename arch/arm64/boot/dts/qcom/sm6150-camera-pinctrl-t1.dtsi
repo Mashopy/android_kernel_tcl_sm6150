@@ -1,0 +1,195 @@
+/* Copyright (C) 2019 Tcl Corporation Limited */
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&tlmm{
+		cam_sensor_dvdd_1_en_active: cam_sensor_dvdd_1_en_active {
+			/* RESET  */
+			mux {
+				pins = "gpio36";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio36";
+				bias-pull-up;
+				drive_strength = <2>;
+				output-high;
+			};
+		};
+
+		cam_sensor_dvdd_1_en_suspend: cam_sensor_dvdd_1_en_suspend {
+			/* RESET */
+			mux {
+				pins = "gpio36";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio36";
+				bias-pull-down; /* PULL DOWN */
+				drive-strength = <2>; /* 2 MA */
+				output-low;
+			};
+		};
+
+		cci1_mux_en_active: cci1_mux_en_active {
+			mux {
+				/* CSI1_MUX_EN */
+				pins = "gpio24";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio24";
+				bias-disable;
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+		cci1_mux_en_suspend: cci1_mux_en_suspend {
+			mux {
+				/* CSI1_MUX_EN */
+				pins = "gpio24";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio24";
+				bias-pull-down;
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+		cci1_mux_sel_active: cci1_mux_sel_active {
+			mux {
+				/* CSI1_MUX_SEL */
+				pins = "gpio25";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio25";
+				bias-disable; /* NO PULL */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+		cci1_mux_sel_suspend: cci1_mux_sel_suspend {
+			mux {
+				/* CSI1_MUX_SEL */
+				pins = "gpio25";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio25";
+				bias-pull-down; /* PULL DOWN */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+		cam_sensor_dvdd_2_en_active: cam_sensor_dvdd_2_en_active {
+			/* RESET  */
+			mux {
+				pins = "gpio41";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio41";
+				bias-pull-up;
+				drive_strength = <2>;
+				output-high;
+			};
+		};
+
+		cam_sensor_dvdd_2_en_suspend: cam_sensor_dvdd_2_en_suspend {
+			/* RESET */
+			mux {
+				pins = "gpio41";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio41";
+				bias-pull-down; /* PULL DOWN */
+				drive-strength = <2>; /* 2 MA */
+				output-low;
+			};
+		};
+		cam_sensor_mclk3_active: cam_sensor_mclk3_active {
+			/* MCLK3 */
+			mux {
+				pins = "gpio31";
+				function = "cam_mclk";
+			};
+
+			config {
+				pins = "gpio31";
+				bias-disable; /* No PULL */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+		cam_sensor_mclk3_suspend: cam_sensor_mclk3_suspend {
+			/* MCLK3 */
+			mux {
+				pins = "gpio31";
+				function = "cam_mclk";
+			};
+
+			config {
+				pins = "gpio31";
+				bias-pull-down; /* PULL DOWN */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+		cam_sensor_rear3_active: cam_sensor_rear3_active {
+			/* RESET */
+			mux {
+				pins = "gpio40";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio40";
+				bias-disable; /* No PULL */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+		cam_sensor_rear3_suspend: cam_sensor_rear3_suspend {
+			/* RESET */
+			mux {
+				pins = "gpio40";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio40";
+				bias-pull-down; /* PULL DOWN */
+				drive-strength = <2>; /* 2 MA */
+				output-low;
+			};
+		};
+};
+
+&pm6150l_gpios {
+	cam_sensor_video_en_active: cam_sensor_video_en_active {
+				pins = "gpio1";
+				function = "normal";
+				bias-disable; /* No PULL */
+				power-source = <0>;			
+		};
+         cam_sensor_video_en_suspend: cam_sensor_video_en_suspend {
+				pins = "gpio1";
+				function = "normal";
+				bias-pull-down; /* No PULL */
+				power-source = <0>;			
+		};
+};
+

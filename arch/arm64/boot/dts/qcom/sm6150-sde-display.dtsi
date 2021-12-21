@@ -20,6 +20,8 @@
 #include "dsi-panel-td4330-truly-singlemipi-fhd-cmd.dtsi"
 #include "dsi-panel-td4330-truly-singlemipi-fhd-video.dtsi"
 #include "dsi-panel-sharp-split-link-wuxga-video.dtsi"
+#include "dsi-panel-ft8917-fhd-video.dtsi"
+#include "dsi-panel-t1-pro-fhd-cmd.dtsi"
 #include "dsi-panel-ext-bridge-hdmi-1080p.dtsi"
 #include <dt-bindings/clock/mdss-14nm-pll-clk.h>
 
@@ -209,6 +211,32 @@
 		qcom,dsi-panel = <&dsi_sharp_split_link_wuxga_video>;
 	};
 
+	dsi_ft8917_vid_display: qcom,dsi-display@10 {
+		label = "dsi_ft8917_vid_display";
+		qcom,display-type = "primary";
+
+		qcom,dsi-ctrl-num = <0>;
+		qcom,dsi-phy-num = <0>;
+		qcom,dsi-select-clocks = "mux_byte_clk0", "mux_pixel_clk0",
+			"src_byte_clk0", "src_pixel_clk0",
+			"shadow_byte_clk0", "shadow_pixel_clk0";
+
+		qcom,dsi-panel = <&dsi_ft8917_video>;
+	};
+
+	dsi_t1_pro_cmd_display: qcom,dsi-display@11 {
+		label = "dsi_t1_pro_cmd_display";
+		qcom,display-type = "primary";
+
+		qcom,dsi-ctrl-num = <0>;
+		qcom,dsi-phy-num = <0>;
+		qcom,dsi-select-clocks = "mux_byte_clk0", "mux_pixel_clk0",
+			"src_byte_clk0", "src_pixel_clk0",
+			"shadow_byte_clk0", "shadow_pixel_clk0";
+
+		qcom,dsi-panel = <&dsi_t1_pro_cmd>;
+	};
+
 	sde_dsi: qcom,dsi-display {
 		compatible = "qcom,dsi-display";
 
@@ -220,13 +248,14 @@
 			 <&mdss_dsi0_pll BYTE0_SRC_CLK>,
 			 <&mdss_dsi0_pll PIX0_SRC_CLK>,
 			 <&mdss_dsi0_pll SHADOW_BYTE0_SRC_CLK>,
-			 <&mdss_dsi0_pll SHADOW_PIX0_SRC_CLK>;
+			 <&mdss_dsi0_pll SHADOW_PIX0_SRC_CLK>,
+			 <&pm6150_clkdiv 1>;
 		clock-names = "mux_byte_clk0", "mux_pixel_clk0",
 			"src_byte_clk0", "src_pixel_clk0",
-			"shadow_byte_clk0", "shadow_pixel_clk0";
+			"shadow_byte_clk0", "shadow_pixel_clk0", "iris3_div_clk1";
 		pinctrl-names = "panel_active", "panel_suspend";
-		pinctrl-0 = <&sde_dsi_active &sde_te_active>;
-		pinctrl-1 = <&sde_dsi_suspend &sde_te_suspend>;
+		pinctrl-0 = <&sde_dsi_active &sde_te_active &iris_dsi_active>;
+		pinctrl-1 = <&sde_dsi_suspend &sde_te_suspend &iris_dsi_suspend>;
 
 		qcom,platform-te-gpio = <&tlmm 90 0>;
 
@@ -245,7 +274,9 @@
 			&dsi_rm69298_truly_amoled_cmd_display
 			&dsi_td4330_truly_vid_display
 			&dsi_td4330_truly_cmd_display
-			&dsi_sharp_split_link_wuxga_vid_display>;
+			&dsi_sharp_split_link_wuxga_vid_display
+			&dsi_ft8917_vid_display
+			&dsi_t1_pro_cmd_display>;
 	};
 
 	sde_wb: qcom,wb-display@0 {
@@ -527,6 +558,45 @@
 			qcom,default-topology-index = <0>;
 		};
 	};
+};
+
+&dsi_ft8917_video {
+	qcom,mdss-dsi-t-clk-post = <0x0e>;
+	/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+	qcom,mdss-dsi-t-clk-pre = <0x35>;
+	qcom,mdss-dsi-display-timings {
+		timing@0{
+			qcom,mdss-dsi-panel-phy-timings =
+				[25 1F 09 0A 06 03 04 a0
+				25 1F 09 0A 06 03 04 a0
+				25 1F 09 0A 06 03 04 a0
+				25 1F 09 0A 06 03 04 a0
+				25 1F 08 0A 06 03 04 a0];
+				/* MODIFIED-END by Haojun Chen,BUG-7765094*/
+            qcom,display-topology = <1 0 1>,
+                                    <2 0 1>;
+            qcom,default-topology-index = <0>;
+		};
+    };
+};
+
+&dsi_t1_pro_cmd {
+	qcom,mdss-dsi-t-clk-post = <0x0e>;
+	qcom,mdss-dsi-t-clk-pre = <0x36>;
+	qcom,mdss-dsi-display-timings {
+		timing@0{
+			qcom,mdss-dsi-panel-phy-timings =
+				[25 20 09 0A 06 03 04 a0
+				25 20 09 0A 06 03 04 a0
+				25 20 09 0A 06 03 04 a0
+				25 20 09 0A 06 03 04 a0
+				25 1F 09 0A 06 03 04 a0];
+			qcom,mdss-dsi-panel-clockrate= <1036800000>;
+            qcom,display-topology = <1 0 1>,
+                                    <2 0 1>;
+            qcom,default-topology-index = <0>;
+		};
+    };
 };
 
 &dsi_ext_bridge_hdmi_1080p {
