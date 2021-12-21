@@ -39,12 +39,14 @@
 #define RAMOOPS_KERNMSG_HDR "===="
 #define MIN_MEM_SIZE 4096UL
 
-static ulong record_size = MIN_MEM_SIZE;
+/* MODIFY by xiaofeng.lin, 2019-08-16, Task-8249276 */
+static ulong record_size = 0x40000;
 module_param(record_size, ulong, 0400);
 MODULE_PARM_DESC(record_size,
 		"size of each dump done on oops/panic");
 
-static ulong ramoops_console_size = MIN_MEM_SIZE;
+/* MODIFY by xiaofeng.lin, 2019-08-16, Task-8249276 */
+static ulong ramoops_console_size = 0x200000;
 module_param_named(console_size, ramoops_console_size, ulong, 0400);
 MODULE_PARM_DESC(console_size, "size of kernel console log");
 
@@ -52,16 +54,19 @@ static ulong ramoops_ftrace_size = MIN_MEM_SIZE;
 module_param_named(ftrace_size, ramoops_ftrace_size, ulong, 0400);
 MODULE_PARM_DESC(ftrace_size, "size of ftrace log");
 
-static ulong ramoops_pmsg_size = MIN_MEM_SIZE;
+/* MODIFY by xiaofeng.lin, 2019-08-16, Task-8249276 */
+static ulong ramoops_pmsg_size = 0x100000;
 module_param_named(pmsg_size, ramoops_pmsg_size, ulong, 0400);
 MODULE_PARM_DESC(pmsg_size, "size of user space message log");
 
-static unsigned long long mem_address;
+/* MODIFY by xiaofeng.lin, 2019-08-16, Task-8249276 */
+static unsigned long long mem_address = 0xa1600000;
 module_param_hw(mem_address, ullong, other, 0400);
 MODULE_PARM_DESC(mem_address,
 		"start of reserved RAM used to store oops/panic logs");
 
-static ulong mem_size;
+/* MODIFY by xiaofeng.lin, 2019-08-16, Task-8249276 */
+static ulong mem_size = 0x400000;
 module_param(mem_size, ulong, 0400);
 MODULE_PARM_DESC(mem_size,
 		"size of reserved RAM used to store oops/panic logs");
@@ -360,6 +365,9 @@ static size_t ramoops_write_kmsg_hdr(struct persistent_ram_zone *prz,
 	char *hdr;
 	size_t len;
 
+	/* ADD-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+	persistent_ram_zap(prz);
+	/* ADD-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
 	hdr = kasprintf(GFP_ATOMIC, RAMOOPS_KERNMSG_HDR "%lu.%lu-%c\n",
 		record->time.tv_sec,
 		record->time.tv_nsec / 1000,
@@ -377,6 +385,9 @@ static int notrace ramoops_pstore_write(struct pstore_record *record)
 	struct ramoops_context *cxt = record->psi->data;
 	struct persistent_ram_zone *prz;
 	size_t size, hlen;
+	/* ADD-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+	int i;
+	/* ADD-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
 
 	if (record->type == PSTORE_TYPE_CONSOLE) {
 		if (!cxt->cprz)
@@ -433,6 +444,11 @@ static int notrace ramoops_pstore_write(struct pstore_record *record)
 
 	prz = cxt->dprzs[cxt->dump_write_cnt];
 
+	/* ADD-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+	for (i = cxt->max_dump_cnt-1; persistent_ram_get_buffer_size(prz) > 0 && i > 0; --i) {
+		persistent_ram_flowing_update(cxt->dprzs[i-1], cxt->dprzs[i]);
+	}
+	/* ADD-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
 	/* Build header and append record contents. */
 	hlen = ramoops_write_kmsg_hdr(prz, record);
 	size = record->size;
@@ -440,7 +456,9 @@ static int notrace ramoops_pstore_write(struct pstore_record *record)
 		size = prz->buffer_size - hlen;
 	persistent_ram_write(prz, record->buf, size);
 
-	cxt->dump_write_cnt = (cxt->dump_write_cnt + 1) % cxt->max_dump_cnt;
+	/* REMOVE-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+	//cxt->dump_write_cnt = (cxt->dump_write_cnt + 1) % cxt->max_dump_cnt;
+	/* REMOVE-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
 
 	return 0;
 }

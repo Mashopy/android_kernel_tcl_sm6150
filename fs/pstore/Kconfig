@@ -12,12 +12,20 @@ config PSTORE
 	   If you don't have a platform persistent store driver,
 	   say N.
 
+# MODIFY-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276
+# disable compression for pstore dmesg
 choice
         prompt "Choose compression algorithm"
         depends on PSTORE
-        default PSTORE_ZLIB_COMPRESS
+        default PSTORE_NON_COMPRESS
         help
           This option chooses compression algorithm.
+
+config PSTORE_NON_COMPRESS
+        bool "non compress"
+        help
+          This option disables compression algorithm support.
+# MODIFY-END by xiaofeng.lin, 2019-08-16, Task-8249276
 
 config PSTORE_ZLIB_COMPRESS
         bool "ZLIB"

@@ -125,6 +125,8 @@ if BLOCK
 menu "DOS/FAT/NT Filesystems"
 
 source "fs/fat/Kconfig"
+# Task: 8249036, exfat support
+source "fs/exfat/Kconfig"
 source "fs/ntfs/Kconfig"
 
 endmenu

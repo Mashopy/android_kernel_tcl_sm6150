@@ -280,11 +280,36 @@ static int notrace persistent_ram_update_user(struct persistent_ram_zone *prz,
 	return ret;
 }
 
+/* ADD-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+size_t persistent_ram_get_buffer_size(struct persistent_ram_zone *prz)
+{
+	return buffer_size(prz);
+}
+
+//drop old log and move new log to
+void persistent_ram_flowing_update(struct persistent_ram_zone *sprz,
+		struct persistent_ram_zone *tprz)
+{
+	struct persistent_ram_buffer *buffer = sprz->buffer;
+	size_t size = buffer_size(sprz);
+	if (!size || !tprz || sprz == tprz){
+		return;
+	}
+	/* disable circular buffer, so we write with start 0, and read with start 0 too.*/
+	persistent_ram_zap(tprz);
+	persistent_ram_write(tprz, buffer->data, size);
+}
+/* ADD-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
+
 void persistent_ram_save_old(struct persistent_ram_zone *prz)
 {
 	struct persistent_ram_buffer *buffer = prz->buffer;
 	size_t size = buffer_size(prz);
+/* REMOVE-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+#if 0
 	size_t start = buffer_start(prz);
+#endif
+/* REMOVE-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
 
 	if (!size)
 		return;
@@ -299,8 +324,14 @@ void persistent_ram_save_old(struct persistent_ram_zone *prz)
 	}
 
 	prz->old_log_size = size;
+/* MODIFY-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+#if 0
 	memcpy_fromio(prz->old_log, &buffer->data[start], size - start);
 	memcpy_fromio(prz->old_log + size - start, &buffer->data[0], start);
+#else
+	memcpy_fromio(prz->old_log, &buffer->data[0], size);
+#endif
+/* MODIFY-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
 }
 
 int notrace persistent_ram_write(struct persistent_ram_zone *prz,

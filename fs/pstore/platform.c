@@ -83,7 +83,11 @@ static char *backend;
 #define MEM_LEVEL 4
 static struct z_stream_s stream;
 #else
+/* ADD-BEGIN by xiaofeng.lin, 2019-08-16, Task-8249276 */
+#ifndef CONFIG_PSTORE_NON_COMPRESS
 static unsigned char *workspace;
+#endif
+/* ADD-END by xiaofeng.lin, 2019-08-16, Task-8249276 */
 #endif
 
 struct pstore_zbackend {
