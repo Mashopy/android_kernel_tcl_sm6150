@@ -155,7 +155,7 @@ static int msm_sharedmem_probe(struct platform_device *pdev)
 		guard_memory = of_property_read_bool(pdev->dev.of_node,
 				"qcom,guard-memory");
 
-		shared_mem_tot_sz = guard_memory ? shared_mem_size + SZ_8K :
+		shared_mem_tot_sz = guard_memory ? shared_mem_size + SZ_128K :
 					shared_mem_size;
 
 		shared_mem = dma_alloc_coherent(&pdev->dev, shared_mem_tot_sz,
@@ -166,7 +166,7 @@ static int msm_sharedmem_probe(struct platform_device *pdev)
 			return -ENOMEM;
 		}
 		if (guard_memory)
-			shared_mem_pyhsical += SZ_4K;
+			shared_mem_pyhsical += SZ_64K;
 	}
 
 	/* Set up the permissions for the shared ram that was allocated. */

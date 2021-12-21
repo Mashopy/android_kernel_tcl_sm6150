@@ -47,7 +47,7 @@ MODULE_DESCRIPTION("Force feedback support for Holtek On Line Grip based devices
  * 	06  stop all effects
  * 	(the difference between 04 and 06 isn't known; win driver
  * 	 sends 06,04 on application init, and 06 otherwise)
- * 
+ *
  * Commands 01 and 02 need to be sent as pairs, i.e. you need to send 01
  * before each 02.
  *
@@ -140,12 +140,20 @@ static int holtekff_init(struct hid_device *hid)
 {
 	struct holtekff_device *holtekff;
 	struct hid_report *report;
-	struct hid_input *hidinput = list_entry(hid->inputs.next,
-						struct hid_input, list);
+	/* MODIFIED-BEGIN by hongwei.tian, 2020-04-10,BUG-9208895*/
+	struct hid_input *hidinput;
 	struct list_head *report_list =
 			&hid->report_enum[HID_OUTPUT_REPORT].report_list;
-	struct input_dev *dev = hidinput->input;
+	struct input_dev *dev;
 	int error;
+
+	if (list_empty(&hid->inputs)) {
+		hid_err(hid, "no inputs found\n");
+		return -ENODEV;
+	}
+	hidinput = list_entry(hid->inputs.next, struct hid_input, list);
+	dev = hidinput->input;
+	/* MODIFIED-END by hongwei.tian,BUG-9208895*/
 
 	if (list_empty(report_list)) {
 		hid_err(hid, "no output report found\n");

@@ -236,6 +236,7 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 		pr_err("[%d] DSI display post enabled failed, rc=%d\n",
 		       c_bridge->id, rc);
 
+	pr_info("%s,%d \n",__func__,__LINE__); // MODIFIED by hongwei.tian, 2019-12-14,BUG-8676972
 	if (display && display->drm_conn)
 		sde_connector_helper_bridge_enable(display->drm_conn);
 }
@@ -1010,7 +1011,7 @@ struct dsi_bridge *dsi_drm_bridge_init(struct dsi_display *display,
 	bridge->display = display;
 	bridge->base.funcs = &dsi_bridge_ops;
 	bridge->base.encoder = encoder;
-
+	pr_info("%s \n",__func__); // MODIFIED by hongwei.tian, 2019-12-14,BUG-8676972
 	rc = drm_bridge_attach(encoder, &bridge->base, NULL);
 	if (rc) {
 		pr_err("failed to attach bridge, rc=%d\n", rc);

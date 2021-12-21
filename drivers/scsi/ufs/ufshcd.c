@@ -4527,6 +4527,13 @@ int ufshcd_map_desc_id_to_length(struct ufs_hba *hba,
 	case QUERY_DESC_IDN_STRING:
 		*desc_len = QUERY_DESC_MAX_SIZE;
 		break;
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-13,BUG-7686166*/
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	case QUERY_DESC_IDN_RFU_2:
+		*desc_len = 6;
+		break;
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7686166*/
 	case QUERY_DESC_IDN_RFU_0:
 	case QUERY_DESC_IDN_RFU_1:
 		*desc_len = 0;
@@ -4634,6 +4641,17 @@ static inline int ufshcd_read_power_desc(struct ufs_hba *hba,
 {
 	return ufshcd_read_desc(hba, QUERY_DESC_IDN_POWER, 0, buf, size);
 }
+
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-13,BUG-7686166*/
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static inline int ufshcd_read_health_desc(struct ufs_hba *hba,
+					 u8 *buf,
+					 u32 size)
+{
+	return ufshcd_read_desc(hba, QUERY_DESC_IDN_RFU_2, 0, buf, size);
+}
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7686166*/
 
 int ufshcd_read_device_desc(struct ufs_hba *hba, u8 *buf, u32 size)
 {
@@ -10843,6 +10861,64 @@ ufshcd_exit_latency_hist(struct ufs_hba *hba)
 	device_create_file(hba->dev, &dev_attr_latency_hist);
 }
 
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-13,BUG-7686166*/
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static ssize_t ufshcd_get_health(struct ufs_hba *hba, char *buf)
+{
+	int ret = -1;
+	//int buff_len = hba->desc_size.pwr_desc;
+	int buff_len = 6;
+	u8 *desc_buf = NULL;
+
+	if (buff_len) {
+		desc_buf = kmalloc(buff_len, GFP_KERNEL);
+		if (!desc_buf)
+			return ret;
+	}
+
+	ret = ufshcd_read_health_desc(hba, desc_buf, buff_len);
+	if (ret) {
+		dev_err(hba->dev,
+			"%s: Failed reading health descriptor.len = %d ret = %d",
+			__func__, buff_len, ret);
+		goto out;
+	}
+	printk("ufshcd_get_health: desc_buf[1]=%u, desc_buf[2]=%u, desc_buf[3]=%u, desc_buf[4]=%u\n", desc_buf[1], desc_buf[2], desc_buf[3], desc_buf[4]);
+	ret = snprintf(buf, PAGE_SIZE, "0x%02x 0x%02x\n", desc_buf[3], desc_buf[4]);
+
+out:
+	kfree(desc_buf);
+	return ret;
+}
+
+ssize_t
+life_time_show(struct device *dev, struct device_attribute *attr,
+		  char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return ufshcd_get_health(hba, buf);
+}
+
+static DEVICE_ATTR(life_time, S_IRUGO,
+		   life_time_show, NULL);
+
+static void
+ufshcd_init_life_time(struct ufs_hba *hba)
+{
+	if (device_create_file(hba->dev, &dev_attr_life_time))
+		dev_err(hba->dev, "Failed to create life_time sysfs entry\n");
+}
+
+static void
+ufshcd_exit_life_time(struct ufs_hba *hba)
+{
+	device_create_file(hba->dev, &dev_attr_life_time);
+}
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7686166*/
+
+
 /**
  * ufshcd_remove - de-allocate SCSI host and host memory space
  *		data structure memory
@@ -10859,6 +10935,11 @@ void ufshcd_remove(struct ufs_hba *hba)
 	ufshcd_exit_clk_gating(hba);
 	ufshcd_exit_hibern8_on_idle(hba);
 	ufshcd_exit_latency_hist(hba);
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-13,BUG-7686166*/
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	ufshcd_exit_life_time(hba);
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7686166*/
 	if (ufshcd_is_clkscaling_supported(hba)) {
 		device_remove_file(hba->dev, &hba->clk_scaling.enable_attr);
 		if (hba->devfreq)
@@ -11122,6 +11203,12 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 
 	ufshcd_init_latency_hist(hba);
 
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-13,BUG-7686166*/
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	ufshcd_init_life_time(hba);
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7686166*/
+
 	/*
 	 * We are assuming that device wasn't put in sleep/power-down
 	 * state exclusively during the boot stage before kernel.
@@ -11145,6 +11232,11 @@ out_remove_scsi_host:
 exit_gating:
 	ufshcd_exit_clk_gating(hba);
 	ufshcd_exit_latency_hist(hba);
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-13,BUG-7686166*/
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	ufshcd_exit_life_time(hba);
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7686166*/
 out_disable:
 	hba->is_irq_enabled = false;
 	ufshcd_hba_exit(hba);

@@ -17,6 +17,12 @@
 #include "sde_hw_mdss.h"
 #include "sde_hw_util.h"
 
+/* MODIFIED-BEGIN by hongwei.tian, 2019-06-18,BUG-7892763*/
+#if defined(CONFIG_PXLW_IRIS3)
+#include "dsi_iris3_api.h"
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7892763*/
+
 /* using a file static variables for debugfs access */
 static u32 sde_hw_util_log_mask = SDE_DBG_MASK_NONE;
 
@@ -148,6 +154,14 @@ void sde_set_scaler_v2(struct sde_hw_scaler3_cfg *cfg,
 	cfg->dyn_exp_disabled = (scale_v2->flags & SDE_DYN_EXP_DISABLE) ? 1 : 0;
 
 	cfg->de.enable = scale_v2->de.enable;
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	/* MODIFIED-BEGIN by hongwei.tian, 2019-06-18,BUG-7892763*/
+	if (iris3_abypass_mode_get() == PASS_THROUGH_MODE)
+		cfg->de.enable = false;
+		/* MODIFIED-END by hongwei.tian,BUG-7892763*/
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	cfg->de.sharpen_level1 = scale_v2->de.sharpen_level1;
 	cfg->de.sharpen_level2 = scale_v2->de.sharpen_level2;
 	cfg->de.clip = scale_v2->de.clip;
@@ -297,7 +311,14 @@ static void _sde_hw_setup_scaler3_de(struct sde_hw_blk_reg_map *c,
 {
 	u32 sharp_lvl, sharp_ctl, shape_ctl, de_thr;
 	u32 adjust_a, adjust_b, adjust_c;
-
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	/* MODIFIED-BEGIN by hongwei.tian, 2019-06-18,BUG-7892763*/
+	if (iris3_abypass_mode_get() == PASS_THROUGH_MODE)
+		de_cfg->enable = false;
+		/* MODIFIED-END by hongwei.tian,BUG-7892763*/
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	if (!de_cfg->enable)
 		return;
 

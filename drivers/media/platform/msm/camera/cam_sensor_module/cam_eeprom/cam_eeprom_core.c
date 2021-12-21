@@ -20,6 +20,625 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+
+struct msm_eeprom_power_setting_array {
+	struct cam_sensor_power_setting  power_setting_a[MAX_POWER_CONFIG];
+	struct cam_sensor_power_setting *power_setting;
+	unsigned short size;
+	struct cam_sensor_power_setting  power_down_setting_a[MAX_POWER_CONFIG];
+	struct cam_sensor_power_setting *power_down_setting;
+	unsigned short size_down;
+};
+
+int cali_value = 0;
+char cali_flag = 0;
+char ae_cali_flag = 0;
+unsigned char *bin_buffer = NULL;
+
+#define CCI_BLOCK_SIZE          32
+#define SLAVE_ADDRESS           0xA0        /*eeprom slave address*/
+#define CCI_WRITE_MASTER        0
+#define CALI_DATA_SIZE          0x800       //2k
+#define CALI_DATA_OFFSET_FLAG   0x15FF
+#define CALI_DATA_OFFSET        CALI_DATA_OFFSET_FLAG + 1 // cci write continuesly  start address should be integ multi of 32
+#define CALI_DATA_CHECKSUM      CALI_DATA_OFFSET_FLAG + CALI_DATA_SIZE + 1
+#define PATH_CALI               "/sdcard/MMI/dualcam_cali.bin"
+#define PATH_CALI_FLAG          "/sdcard/MMI/dualcam_flag.bin"
+
+
+#define AE_BLOCK_SIZE           10
+#define AE_DATA_OFFSET_FLAG     CALI_DATA_CHECKSUM + 1
+#define AE_DATA_OFFSET          AE_DATA_OFFSET_FLAG +1
+#define AE_DATA_CHECKSUM        AE_DATA_OFFSET + AE_BLOCK_SIZE
+#define PATH_CALI_AE            "/sdcard/MMI/dualcam_ae.bin"
+#define PATH_AE_FLAG            "/sdcard/MMI/dualcam_ae_flag.bin"
+
+struct msm_eeprom_power_setting_array  *power_setting_array_dc = NULL;
+
+static void msm_eeprom_copy_power_settings_compat(
+  struct msm_eeprom_power_setting_array *ps,
+  struct cam_sensor_power_ctrl_t *power_info)
+{
+  int i = 0;
+
+  ps->size = power_info->power_setting_size;
+  for (i = 0; i < power_info->power_setting_size; i++) {
+    ps->power_setting_a[i].config_val =
+      power_info->power_setting[i].config_val;
+    ps->power_setting_a[i].delay =
+      power_info->power_setting[i].delay;
+    ps->power_setting_a[i].seq_type =
+      power_info->power_setting[i].seq_type;
+    ps->power_setting_a[i].seq_val =
+    	power_info->power_setting[i].seq_val;
+  }
+
+  ps->size_down = power_info->power_down_setting_size;
+  for (i = 0; i < power_info->power_down_setting_size; i++) {
+    ps->power_down_setting_a[i].config_val =
+      power_info->power_down_setting[i].config_val;
+    ps->power_down_setting_a[i].delay =
+      power_info->power_down_setting[i].delay;
+    ps->power_down_setting_a[i].seq_type =
+      power_info->power_down_setting[i].seq_type;
+    ps->power_down_setting_a[i].seq_val =
+      power_info->power_down_setting[i].seq_val;
+  }
+}
+
+static uint32_t read_dualcam_cali_data(int write_en)
+{
+  struct file *fp;
+  mm_segment_t fs;
+  loff_t pos = 0;
+  uint32_t data_size = 0;
+  //int i = 0;
+  if(write_en == 1){
+    fp = filp_open(PATH_CALI, O_RDWR, 0666);
+  }else if(write_en == 2){
+    fp = filp_open(PATH_CALI_AE, O_RDWR, 0666);
+  }else{
+    CAM_ERR(CAM_EEPROM, "write_en %d not support",write_en);
+    return 0;
+  }
+
+  if (IS_ERR(fp)) {
+    CAM_ERR(CAM_EEPROM, "faile to open file cali data");
+    return 0;
+  }
+
+  data_size = vfs_llseek(fp,0,SEEK_END);
+  CAM_ERR(CAM_EEPROM, "Binary data size is %d bytes",data_size);
+
+  if(data_size > 0) {
+    bin_buffer = kzalloc(data_size, GFP_KERNEL);
+    if (bin_buffer == NULL){
+      CAM_ERR(CAM_EEPROM, "[Error]malloc memery failed");
+      goto close;
+  }
+
+    fs = get_fs();
+    set_fs(KERNEL_DS);
+    pos = 0;
+    vfs_read(fp, bin_buffer, data_size, &pos);
+    CAM_ERR(CAM_EEPROM, "Read new calibration data done!");
+
+    filp_close(fp, NULL);
+    set_fs(fs);
+    return data_size;
+  }else{
+    CAM_ERR(CAM_EEPROM, "[Error] Get calibration data failed");
+  }
+
+  close:
+    filp_close(fp, NULL);
+    set_fs(fs);
+    CAM_ERR(CAM_EEPROM, "read dualcam cali data exit");
+    return -1;
+}
+
+
+static int calibration_check(struct cam_eeprom_ctrl_t *e_ctrl)
+{
+	int rc = 0;
+	uint32_t calibration_flag = 0;
+
+	if (!e_ctrl) {
+		CAM_ERR(CAM_EEPROM, "%s e_ctrl is NULL", __func__);
+		return -EINVAL;
+	}
+
+	rc = camera_io_dev_read(
+		&e_ctrl->io_master_info, CALI_DATA_OFFSET,
+		&calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Calibration flag read failed");
+	}else{
+    CAM_ERR(CAM_EEPROM, "calibration_flag0=0x%x",calibration_flag);
+  }
+
+	rc = camera_io_dev_read(
+		&e_ctrl->io_master_info, CALI_DATA_OFFSET_FLAG,
+		&calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Calibration flag read failed");
+	}else{
+    CAM_ERR(CAM_EEPROM, "calibration_flag=0x%x",calibration_flag);
+  }
+
+	rc = camera_io_dev_read(
+		&e_ctrl->io_master_info, CALI_DATA_CHECKSUM,
+		&calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Calibration flag read failed");
+	}else{
+    CAM_ERR(CAM_EEPROM, "calibration_flag_checksum=0x%x",calibration_flag);
+  }
+
+	rc = camera_io_dev_read(
+		&e_ctrl->io_master_info, CALI_DATA_OFFSET + 368,
+		&calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Calibration flag read failed");
+	}else{
+    CAM_ERR(CAM_EEPROM, "calibration_flag368=0x%x",calibration_flag);
+  }
+	rc = camera_io_dev_read(
+		&e_ctrl->io_master_info, CALI_DATA_OFFSET + 2045,
+		&calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Calibration flag read failed");
+	}else{
+    CAM_ERR(CAM_EEPROM, "calibration_flag2045=0x%x",calibration_flag);
+  }
+
+	rc = camera_io_dev_read(
+		&e_ctrl->io_master_info, CALI_DATA_OFFSET + CCI_BLOCK_SIZE,
+		&calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Calibration flag read failed");
+	}else{
+    CAM_ERR(CAM_EEPROM, "calibration_flag_block=0x%x",calibration_flag);
+  }
+
+	rc = camera_io_dev_read(
+		&e_ctrl->io_master_info, CALI_DATA_OFFSET + CALI_DATA_SIZE - 1,
+		&calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_EEPROM, "Calibration flag read failed");
+	}else{
+    CAM_ERR(CAM_EEPROM, "calibration_flag_last=0x%x",calibration_flag);
+  }
+
+	return rc;
+}
+
+static int read_calibration_flag(struct cam_eeprom_ctrl_t *e_ctrl)
+{
+  int rc = 0;
+  uint32_t calibration_flag = 0;
+
+  if (!e_ctrl) {
+    CAM_ERR(CAM_EEPROM, "%s e_ctrl is NULL", __func__);
+    return -EINVAL;
+  }
+
+  rc = camera_io_dev_read(
+  &e_ctrl->io_master_info, CALI_DATA_OFFSET_FLAG,
+  &calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);  // read offset 0x0D2A to check if it's calibrated
+  if (rc < 0) {
+    CAM_ERR(CAM_EEPROM, "%s: Calibration flag read failed\n", __func__);
+  }
+
+  return calibration_flag;
+}
+
+static int read_ae_calibration_flag(struct cam_eeprom_ctrl_t *e_ctrl)
+{
+  int rc = 0;
+  uint32_t calibration_flag = 0;
+
+  if (!e_ctrl) {
+    CAM_ERR(CAM_EEPROM, "%s e_ctrl is NULL", __func__);
+    return -EINVAL;
+  }
+
+  rc = camera_io_dev_read(
+  &e_ctrl->io_master_info, AE_DATA_OFFSET_FLAG,
+  &calibration_flag, CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);  // read offset 0x0D2A to check if it's calibrated
+  if (rc < 0) {
+    CAM_ERR(CAM_EEPROM, "%s: Calibration flag read failed\n", __func__);
+  }
+
+  return calibration_flag;
+}
+#if 0 // avoid kernel to write userspace fs
+static uint32_t write_dualcam_cali_flag(const char* file_path, char cflag)
+{
+  struct file *fp;
+  mm_segment_t fs;
+  loff_t pos = 0;
+  const char flag = cflag;
+
+  fp = filp_open(file_path, O_RDWR|O_CREAT, 0666);
+  if (IS_ERR(fp)) {
+    CAM_ERR(CAM_EEPROM, "faile to open file cali data error");
+    return -1;
+  }
+  fs = get_fs();
+  set_fs(KERNEL_DS);
+  vfs_write(fp, &flag, 1, &pos);
+  filp_close(fp, NULL);
+  set_fs(fs);
+
+  CAM_ERR(CAM_EEPROM, "Write %s = 0x%x done!", file_path,flag);
+  return 0;
+}
+#endif
+static int write_eeprom_memory(struct cam_eeprom_ctrl_t *e_ctrl, struct cam_eeprom_memory_block_t *block, uint32_t size)
+{
+  struct cam_sensor_i2c_reg_setting  i2c_reg_settings = {0};
+  struct cam_sensor_i2c_reg_array    i2c_reg_array = {0};
+  struct cam_sensor_i2c_reg_array*    i2c_reg_array_block = NULL;
+  struct cam_sensor_cci_client *cci_client = NULL;
+  struct cam_eeprom_soc_private *eb_info = NULL;
+  int rc = -1;
+  uint32_t i = 0,j = 0;
+  uint32_t checksum = 0;
+  cali_flag = 0x0;
+
+  if (!e_ctrl)
+  {
+    CAM_ERR(CAM_EEPROM, "%s e_ctrl is NULL");
+    return -EINVAL;
+  }
+
+  if (!bin_buffer)
+  {
+    CAM_ERR(CAM_EEPROM, "%s bin_buffer is NULL");
+    return -EINVAL;
+  }
+
+  if(size != CALI_DATA_SIZE){
+    CAM_ERR(CAM_EEPROM, "dc size is invalid");
+    return -EINVAL;
+  }
+
+  eb_info = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+
+  if (e_ctrl->io_master_info.cci_client) {
+    e_ctrl->io_master_info.cci_client->i2c_freq_mode = I2C_FAST_PLUS_MODE;
+    cci_client = e_ctrl->io_master_info.cci_client;
+    cci_client->sid = eb_info->i2c_info.slave_addr >> 1;
+    cci_client->cci_i2c_master = CCI_WRITE_MASTER;
+  }else{
+    CAM_ERR(CAM_EEPROM, "cci_client is NULL");
+    return -EINVAL;
+  }
+
+  i2c_reg_array_block = kzalloc(sizeof(struct cam_sensor_i2c_reg_array)*CCI_BLOCK_SIZE, GFP_KERNEL);
+
+  for (i = 0; i < size; i++)
+  {
+    checksum += bin_buffer[i];
+  }
+
+  //unlock eeprom writing access;
+  CAM_ERR(CAM_EEPROM, "unlock 0x80 (cci error is ok)");
+  cci_client->sid = 0x80 >> 1;
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = 0x0000;
+  i2c_reg_array.reg_data = 0x00;
+  i2c_reg_array.delay = 1;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,
+  &i2c_reg_settings);
+
+  CAM_ERR(CAM_EEPROM, "unlock 0x%x 0x8000 0x00",SLAVE_ADDRESS);
+  cci_client->sid = SLAVE_ADDRESS >> 1;
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = 0x8000;
+  i2c_reg_array.reg_data = 0x00;
+  i2c_reg_array.delay = 1;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,
+  &i2c_reg_settings);
+  if (rc < 0)
+  {
+    CAM_ERR(CAM_EEPROM, "unlock eeprom writing failed rc = %d", rc);
+  }
+  msleep(10);
+
+  CAM_ERR(CAM_EEPROM, "write eeprom blocks ...");
+  for (j = 0; j < size; j = j + CCI_BLOCK_SIZE){
+    if(j + CCI_BLOCK_SIZE <= size){
+      for (i = 0; i < CCI_BLOCK_SIZE; i = i + 1){
+        i2c_reg_array_block[i].reg_addr = CALI_DATA_OFFSET + i + j;
+        i2c_reg_array_block[i].reg_data = bin_buffer[ i + j ];
+        i2c_reg_array_block[i].delay = 1;
+      }
+      i2c_reg_settings.reg_setting = i2c_reg_array_block;
+      i2c_reg_settings.size = CCI_BLOCK_SIZE;
+      rc = camera_io_dev_write_continuous(&e_ctrl->io_master_info,
+      &i2c_reg_settings, 0);
+
+      if (rc < 0)
+      {
+        CAM_ERR(CAM_EEPROM, "write eeprom data failed1 rc = %d j = %d size = %d", rc,j,size);
+        goto FREE;
+      }
+      msleep(10);
+    } else {
+      CAM_ERR(CAM_EEPROM, "write eeprom data j = %d", j);
+      for (i = 0; i < size - j; i = i + 1){
+        i2c_reg_array.reg_addr = CALI_DATA_OFFSET + i + j;
+        i2c_reg_array.reg_data = bin_buffer[ i + j ];
+        i2c_reg_array.delay = 1;
+
+        i2c_reg_settings.reg_setting = &i2c_reg_array;
+        i2c_reg_settings.size = 1;
+        rc = camera_io_dev_write(&e_ctrl->io_master_info,
+          &i2c_reg_settings);
+        if (rc < 0)
+        {
+          CAM_ERR(CAM_EEPROM, "write eeprom data failed2 rc = %d", rc);
+          goto FREE;
+        }
+      }
+      msleep(5);
+    }
+  }
+
+
+  CAM_ERR(CAM_EEPROM, "write eeprom Flag...");
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = CALI_DATA_OFFSET_FLAG;
+  i2c_reg_array.reg_data = 0x01;
+  i2c_reg_array.delay = 0;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,
+  &i2c_reg_settings);
+  if (rc < 0)
+  {
+    CAM_ERR(CAM_EEPROM, "write eeprom Flag Fail");
+    goto FREE;
+  }
+  msleep(5);
+
+  checksum = checksum % 0xFF + 1;
+  CAM_ERR(CAM_EEPROM, "write eeprom Checksum... checksum = %d",checksum);
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = CALI_DATA_CHECKSUM;
+  i2c_reg_array.reg_data = checksum;
+  i2c_reg_array.delay = 0;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,
+  &i2c_reg_settings);
+  if (rc < 0)
+  {
+    CAM_ERR(CAM_EEPROM, "write eeprom data Checksum Fail");
+    goto FREE;
+  }
+  msleep(5);
+
+  CAM_ERR(CAM_EEPROM, "write eeprom Finish");
+
+  //lock eeprom writing access;
+  CAM_ERR(CAM_EEPROM, "lock 0x%x 0x8000 0x01",SLAVE_ADDRESS);
+  cci_client->sid = SLAVE_ADDRESS >> 1;
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = 0x8000;
+  i2c_reg_array.reg_data = 0x01;
+  i2c_reg_array.delay = 1;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,&i2c_reg_settings);
+  if (rc < 0)
+  {
+    CAM_ERR(CAM_EEPROM, "lock eeprom writing failed rc = %d", rc);
+    goto FREE;
+  }
+
+  CAM_ERR(CAM_EEPROM, "lock 0xF0 (cci error is ok)");
+  cci_client->sid = 0xF0 >> 1;
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = 0x0000;
+  i2c_reg_array.reg_data = 0x00;
+  i2c_reg_array.delay = 1;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,&i2c_reg_settings);
+
+
+  cali_flag = 0x01;
+  kfree(i2c_reg_array_block);
+  return 0;
+  FREE:
+    kfree(i2c_reg_array_block);
+    return -1;
+}
+
+
+static int write_eeprom_dc_ae(struct cam_eeprom_ctrl_t *e_ctrl, struct cam_eeprom_memory_block_t *block, uint32_t size)
+{
+  struct cam_sensor_i2c_reg_setting  i2c_reg_settings = {0};
+  struct cam_sensor_i2c_reg_array    i2c_reg_array = {0};
+  struct cam_sensor_cci_client *cci_client = NULL;
+  struct cam_eeprom_soc_private *eb_info = NULL;
+  int rc = -1;
+  uint32_t i = 0,j = 0;
+  uint32_t checksum = 0;
+  ae_cali_flag = 0x0;
+
+  if (!e_ctrl)
+  {
+    CAM_ERR(CAM_EEPROM, "%s e_ctrl is NULL");
+    return -EINVAL;
+  }
+
+  if (!bin_buffer)
+  {
+    CAM_ERR(CAM_EEPROM, "%s bin_buffer is NULL");
+    return -EINVAL;
+  }
+
+  if(size != AE_BLOCK_SIZE){
+    CAM_ERR(CAM_EEPROM, "ae bin size is invalid");
+    return -EINVAL;
+  }
+
+  eb_info = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+
+  if (e_ctrl->io_master_info.cci_client) {
+    e_ctrl->io_master_info.cci_client->i2c_freq_mode = I2C_FAST_PLUS_MODE;
+    cci_client = e_ctrl->io_master_info.cci_client;
+    cci_client->sid = eb_info->i2c_info.slave_addr >> 1;
+    cci_client->cci_i2c_master = 0;
+  }else{
+    CAM_ERR(CAM_EEPROM, "cci_client is NULL");
+    return -EINVAL;
+  }
+
+  for (i = 0; i < AE_BLOCK_SIZE; i++)
+  {
+    checksum += bin_buffer[i];
+  }
+
+  //unlock eeprom writing access;
+  CAM_ERR(CAM_EEPROM, "unlock 0x80 (cci error is ok)");
+  cci_client->sid = 0x80 >> 1;
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = 0x0000;
+  i2c_reg_array.reg_data = 0x00;
+  i2c_reg_array.delay = 1;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,
+  &i2c_reg_settings);
+
+  CAM_ERR(CAM_EEPROM, "unlock 0x%x 0x8000 0x00",SLAVE_ADDRESS);
+  cci_client->sid = SLAVE_ADDRESS >> 1;
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = 0x8000;
+  i2c_reg_array.reg_data = 0x00;
+  i2c_reg_array.delay = 1;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,
+  &i2c_reg_settings);
+  if (rc < 0)
+  {
+    CAM_ERR(CAM_EEPROM, "unlock eeprom writing failed rc = %d", rc);
+  }
+  msleep(10);
+
+  for (i = 0; i < AE_BLOCK_SIZE; i = i + 1){
+    i2c_reg_array.reg_addr = AE_DATA_OFFSET + i;
+    i2c_reg_array.reg_data = bin_buffer[i];
+    i2c_reg_array.delay = 1;
+
+    i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+    i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+    i2c_reg_settings.reg_setting = &i2c_reg_array;
+    i2c_reg_settings.size = 1;
+    rc = camera_io_dev_write(&e_ctrl->io_master_info,
+      &i2c_reg_settings);
+
+    if (rc < 0)
+    {
+      CAM_ERR(CAM_EEPROM, "write eeprom data failed1 rc = %d j = %d size = %d", rc,j,size);
+      goto FREE;
+    }
+    msleep(5);
+  }
+
+
+
+  CAM_ERR(CAM_EEPROM, "write eeprom Flag...");
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = AE_DATA_OFFSET_FLAG;
+  i2c_reg_array.reg_data = 0x01;
+  i2c_reg_array.delay = 0;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,
+  &i2c_reg_settings);
+  if (rc < 0)
+  {
+    CAM_ERR(CAM_EEPROM, "write eeprom Flag Fail");
+    goto FREE;
+  }
+  msleep(5);
+
+  checksum = checksum % 0xFF + 1;
+  CAM_ERR(CAM_EEPROM, "write eeprom Checksum... checksum = %d",checksum);
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = AE_DATA_CHECKSUM;
+  i2c_reg_array.reg_data = checksum;
+  i2c_reg_array.delay = 0;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,
+  &i2c_reg_settings);
+  if (rc < 0)
+  {
+    CAM_ERR(CAM_EEPROM, "write eeprom data Checksum Fail");
+    goto FREE;
+  }
+  msleep(5);
+
+  CAM_ERR(CAM_EEPROM, "write eeprom Finish");
+
+  //lock eeprom writing access;
+  CAM_ERR(CAM_EEPROM, "lock 0x%x 0x8000 0x01",SLAVE_ADDRESS);
+  cci_client->sid = SLAVE_ADDRESS >> 1;
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = 0x8000;
+  i2c_reg_array.reg_data = 0x01;
+  i2c_reg_array.delay = 1;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,&i2c_reg_settings);
+  if (rc < 0)
+  {
+    CAM_ERR(CAM_EEPROM, "lock eeprom writing failed rc = %d", rc);
+    goto FREE;
+  }
+
+  CAM_ERR(CAM_EEPROM, "lock 0xF0 (cci error is ok)");
+  cci_client->sid = 0xF0 >> 1;
+  i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+  i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+  i2c_reg_settings.size = 1;
+  i2c_reg_array.reg_addr = 0x0000;
+  i2c_reg_array.reg_data = 0x00;
+  i2c_reg_array.delay = 1;
+  i2c_reg_settings.reg_setting = &i2c_reg_array;
+  rc = camera_io_dev_write(&e_ctrl->io_master_info,&i2c_reg_settings);
+
+
+
+  ae_cali_flag = 0x01;
+  return 0;
+  FREE:
+    return -1;
+}
+
 /**
  * cam_eeprom_read_memory() - read map data into buffer
  * @e_ctrl:     eeprom control struct
@@ -579,6 +1198,11 @@ static int32_t cam_eeprom_init_pkt_parser(struct cam_eeprom_ctrl_t *e_ctrl,
 	struct cam_eeprom_soc_private  *soc_private =
 		(struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
 	struct cam_sensor_power_ctrl_t *power_info = &soc_private->power_info;
+        struct cam_sensor_cci_client *cci_client = NULL;
+
+	if (e_ctrl->io_master_info.cci_client) {
+		cci_client = e_ctrl->io_master_info.cci_client;
+	}
 
 	e_ctrl->cal_data.map = vzalloc((MSM_EEPROM_MEMORY_MAP_MAX_SIZE *
 		MSM_EEPROM_MAX_MEM_MAP_CNT) *
@@ -692,6 +1316,24 @@ static int32_t cam_eeprom_init_pkt_parser(struct cam_eeprom_ctrl_t *e_ctrl,
 			}
 		}
 		e_ctrl->cal_data.num_map = num_map + 1;
+
+		if(e_ctrl->io_master_info.cci_client){
+			CAM_ERR(CAM_EEPROM,"saddr=0x%x,num_map=%d,cci_i2c_master=%d",map[0].saddr,num_map,cci_client->cci_i2c_master);
+			if(map[0].saddr == SLAVE_ADDRESS && cci_client->cci_i2c_master == CCI_WRITE_MASTER) {
+				power_setting_array_dc =
+					kzalloc(sizeof(struct msm_eeprom_power_setting_array),
+						GFP_KERNEL);
+				if (power_setting_array_dc ==  NULL) {
+					CAM_ERR(CAM_EEPROM,"power_setting_array_dc Mem Alloc Fail");
+					rc = -EINVAL;
+					goto rel_cmd_buf;
+				}
+				msm_eeprom_copy_power_settings_compat(
+					power_setting_array_dc,
+					power_info);
+			}
+		}
+
 		if (cam_mem_put_cpu_buf(cmd_desc[i].mem_handle))
 			CAM_WARN(CAM_EEPROM, "Failed to put cpu buf: 0x%x",
 				cmd_desc[i].mem_handle);
@@ -1070,5 +1712,180 @@ release_mutex:
 	mutex_unlock(&(e_ctrl->eeprom_mutex));
 
 	return rc;
+}
+
+ssize_t calibration_flag_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+  int rc = -1;
+  struct cam_sensor_cci_client *cci_client = NULL;
+  struct cam_eeprom_ctrl_t *e_ctrl = NULL;
+  struct cam_eeprom_soc_private *eb_info = NULL;
+  struct cam_sensor_power_ctrl_t *power_info = NULL;
+
+  struct platform_device *pdev = container_of(dev, struct platform_device, dev);
+
+  e_ctrl = platform_get_drvdata(pdev);
+
+  if (!e_ctrl) {
+    CAM_ERR(CAM_EEPROM, "eeprom device is NULL");
+    return 0;
+  }
+  cali_flag = 0x0;
+  ae_cali_flag = 0x0;
+
+  eb_info = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+  power_info = &eb_info->power_info;
+  eb_info->i2c_info.slave_addr = SLAVE_ADDRESS;
+  power_info->dev = &pdev->dev;
+
+  if (e_ctrl->io_master_info.cci_client) {
+  	e_ctrl->io_master_info.cci_client->i2c_freq_mode = I2C_FAST_PLUS_MODE;
+  }
+
+  cci_client = e_ctrl->io_master_info.cci_client;
+  cci_client->sid = eb_info->i2c_info.slave_addr >> 1;
+  cci_client->cci_i2c_master = CCI_WRITE_MASTER;
+
+  if(!power_setting_array_dc){
+    CAM_ERR(CAM_EEPROM, "power_setting_array_dc is NULL");
+    return 0;
+  }
+  power_info->power_setting =
+    power_setting_array_dc->power_setting_a;
+  power_info->power_down_setting =
+    power_setting_array_dc->power_down_setting_a;
+  power_info->power_setting_size =
+    power_setting_array_dc->size;
+  power_info->power_down_setting_size =
+    power_setting_array_dc->size_down;
+
+  rc = cam_eeprom_power_up(e_ctrl, power_info);
+  if (rc < 0) {
+    CAM_ERR(CAM_EEPROM, "Power Up failed for eeprom");
+  }
+
+  cali_flag = read_calibration_flag(e_ctrl);
+  CAM_ERR(CAM_EEPROM, "Done: calibration_flag = 0x%x\n", cali_flag);
+
+  ae_cali_flag = read_ae_calibration_flag(e_ctrl);
+  CAM_ERR(CAM_EEPROM, "Done: ae_cali_flag = 0x%x\n", ae_cali_flag);
+
+  rc = cam_eeprom_power_down(e_ctrl);
+  if (rc) {
+    CAM_ERR(CAM_EEPROM, "failed power down rc %d", rc);
+  }
+  return sprintf(buf, "cali_flag = 0x%x,ae_cali_flag = 0x%x\n", cali_flag,ae_cali_flag);
+}
+
+ssize_t calibration_flag_store(struct device *dev,  struct device_attribute *attr, const char *buf, size_t count)
+{
+  int value = 0;
+
+  sscanf(buf, "%d", &value);
+  CAM_ERR(CAM_EEPROM, "value %d", value);
+
+  return count;
+}
+
+
+ssize_t calibration_data_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+  return sprintf(buf, "%d\n", cali_value);
+}
+
+ssize_t calibration_data_store(struct device *dev,  struct device_attribute *attr, const char *buf, size_t count)
+{
+  int write_enable = 0;
+  int size = -1, rc = -1;
+  struct cam_sensor_cci_client *cci_client = NULL;
+  struct cam_eeprom_ctrl_t *e_ctrl = NULL;
+  struct cam_eeprom_soc_private *eb_info = NULL;
+  struct cam_sensor_power_ctrl_t *power_info = NULL;
+
+  struct platform_device *pdev = container_of(dev, struct platform_device, dev);
+
+  e_ctrl = platform_get_drvdata(pdev);
+
+  if (!e_ctrl) {
+    CAM_ERR(CAM_EEPROM, "eeprom device is NULL");
+    return count;
+  }
+
+  sscanf(buf, "%d", &write_enable);
+  cali_value = write_enable;
+  if (write_enable !=0){
+    CAM_ERR(CAM_EEPROM, "start to read cali data,write_enable=%d",write_enable);
+    size = read_dualcam_cali_data(write_enable);
+    if (size <= 0) {
+      CAM_ERR(CAM_EEPROM, "Fail to get new calibration data");
+      return count;
+    }
+
+    eb_info = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
+    if(!eb_info){
+      CAM_ERR(CAM_EEPROM, "eb_info is NULL");
+      goto end;
+    }
+    power_info = &eb_info->power_info;
+    eb_info->i2c_info.slave_addr = SLAVE_ADDRESS;
+    power_info->dev = &pdev->dev;
+
+    if (e_ctrl->io_master_info.cci_client) {
+      e_ctrl->io_master_info.cci_client->i2c_freq_mode = I2C_FAST_PLUS_MODE;
+      cci_client = e_ctrl->io_master_info.cci_client;
+      cci_client->sid = eb_info->i2c_info.slave_addr >> 1;
+      cci_client->cci_i2c_master = CCI_WRITE_MASTER;
+    }
+
+
+
+    if(!power_setting_array_dc){
+      CAM_ERR(CAM_EEPROM, "power_setting_array_dc is NULL");
+      goto end;
+    }
+    power_info->power_setting =
+      power_setting_array_dc->power_setting_a;
+    power_info->power_down_setting =
+      power_setting_array_dc->power_down_setting_a;
+    power_info->power_setting_size =
+      power_setting_array_dc->size;
+    power_info->power_down_setting_size =
+      power_setting_array_dc->size_down;
+
+    rc = cam_eeprom_power_up(e_ctrl, power_info);
+    if (rc < 0) {
+      CAM_ERR(CAM_EEPROM, "Power Up failed for eeprom");
+      goto end;
+    }
+
+    if(write_enable == 1){
+        rc = write_eeprom_memory(e_ctrl, &e_ctrl->cal_data,CALI_DATA_SIZE);
+        if (rc < 0) {
+          CAM_ERR(CAM_EEPROM, "failed to write_eeprom_memory !");
+        }
+        //write_dualcam_cali_flag(PATH_CALI_FLAG,cali_flag);
+      } else if(write_enable == 2){
+        rc = write_eeprom_dc_ae(e_ctrl, &e_ctrl->cal_data,AE_BLOCK_SIZE);
+        if (rc < 0) {
+          CAM_ERR(CAM_EEPROM, "failed to write_eeprom_dc_ae !");
+        }
+        //write_dualcam_cali_flag(PATH_AE_FLAG,ae_cali_flag);
+      }else if(write_enable == 3){
+        rc = calibration_check(e_ctrl);
+        if (rc < 0) {
+          CAM_ERR(CAM_EEPROM, "failed to calibration_check");
+      }
+    }
+
+    rc = cam_eeprom_power_down(e_ctrl);
+    if (rc) {
+      CAM_ERR(CAM_EEPROM, "failed power down rc %d", rc);
+    }
+
+  }
+
+end:
+  kfree(bin_buffer);
+  return count;
 }
 

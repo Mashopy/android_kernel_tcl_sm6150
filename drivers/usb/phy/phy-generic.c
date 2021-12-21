@@ -172,6 +172,9 @@ void usb_gen_phy_shutdown(struct usb_phy *phy)
 {
 	struct usb_phy_generic *nop = dev_get_drvdata(phy->dev);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (nop->gpiod_reset)
+#endif
 	gpiod_set_value(nop->gpiod_reset, 1);
 
 	if (!IS_ERR(nop->clk))

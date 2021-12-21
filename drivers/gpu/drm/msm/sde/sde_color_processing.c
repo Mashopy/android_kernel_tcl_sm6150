@@ -158,6 +158,16 @@ enum {
 		(p)->val = val; \
 	} while (0)
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+#include "dsi_iris3_api.h"
+
+static int iris3_pcc_ops = SDE_CP_CRTC_DSPP_MAX;
+static bool iris3_pcc_dirty = false;
+struct sde_cp_node *iris3_prop_node[SDE_CP_CRTC_DSPP_MAX] = {};
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
+
 static void sde_cp_get_hw_payload(struct sde_cp_node *prop_node,
 				  struct sde_hw_cp_cfg *hw_cfg,
 				  bool *feature_enabled)
@@ -396,6 +406,12 @@ void sde_cp_crtc_init(struct drm_crtc *crtc)
 	INIT_LIST_HEAD(&sde_crtc->feature_list);
 	INIT_LIST_HEAD(&sde_crtc->ad_dirty);
 	INIT_LIST_HEAD(&sde_crtc->ad_active);
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	iris3_pcc_ops = SDE_CP_CRTC_DSPP_MAX;
+	memset(iris3_prop_node, 0, sizeof(iris3_prop_node));
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 }
 
 static void sde_cp_crtc_install_immutable_property(struct drm_crtc *crtc,
@@ -670,6 +686,13 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 				ret = -EINVAL;
 				continue;
 			}
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+			iris3_prop_node[prop_node->feature] = prop_node;
+			if (iris3_pcc_ops == SDE_CP_CRTC_DSPP_PCC)
+				hw_cfg.payload = NULL;
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 			hw_dspp->ops.setup_pcc(hw_dspp, &hw_cfg);
 			break;
 		case SDE_CP_CRTC_DSPP_IGC:
@@ -677,6 +700,13 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 				ret = -EINVAL;
 				continue;
 			}
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+			iris3_prop_node[prop_node->feature] = prop_node;
+			if (iris3_pcc_ops == SDE_CP_CRTC_DSPP_PCC)
+				hw_cfg.payload = NULL;
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 			hw_dspp->ops.setup_igc(hw_dspp, &hw_cfg);
 			break;
 		case SDE_CP_CRTC_DSPP_GC:
@@ -684,6 +714,13 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 				ret = -EINVAL;
 				continue;
 			}
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+			iris3_prop_node[prop_node->feature] = prop_node;
+			if (iris3_pcc_ops == SDE_CP_CRTC_DSPP_PCC)
+				hw_cfg.payload = NULL;
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 			hw_dspp->ops.setup_gc(hw_dspp, &hw_cfg);
 			break;
 		case SDE_CP_CRTC_DSPP_HSIC:
@@ -841,13 +878,22 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			break;
 		}
 	}
-
 	if (ret) {
 		DRM_ERROR("failed to %s feature %d\n",
 			((feature_enabled) ? "enable" : "disable"),
 			prop_node->feature);
 		return;
 	}
+
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	if (iris3_pcc_dirty) {
+		DRM_DEBUG_DRIVER("Not update list to feature %d\n",
+			prop_node->feature);
+		return;
+	}
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 
 	if (feature_enabled) {
 		DRM_DEBUG_DRIVER("Add feature to active list %d\n",
@@ -890,6 +936,21 @@ void sde_cp_crtc_apply_properties(struct drm_crtc *crtc)
 
 	mutex_lock(&sde_crtc->crtc_cp_lock);
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	iris3_pcc_dirty = false;
+	if (iris3_hdr_enable_get() > 0 && iris3_pcc_ops == SDE_CP_CRTC_DSPP_MAX) {
+		DRM_INFO("Iris sdr2hdr - start\n");
+		iris3_pcc_ops = SDE_CP_CRTC_DSPP_PCC;
+		iris3_pcc_dirty = true;
+	} else if (iris3_hdr_enable_get() == 0 && iris3_pcc_ops == SDE_CP_CRTC_DSPP_PCC) {
+		DRM_INFO("Iris sdr2hdr - end\n");
+		iris3_pcc_ops = SDE_CP_CRTC_DSPP_MAX;
+		iris3_pcc_dirty = true;
+	}
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
+
 	/* Check if dirty lists are empty and ad features are disabled for
 	 * early return. If ad properties are active then we need to issue
 	 * dspp flush.
@@ -898,6 +959,11 @@ void sde_cp_crtc_apply_properties(struct drm_crtc *crtc)
 		list_empty(&sde_crtc->ad_dirty)) {
 		if (list_empty(&sde_crtc->ad_active)) {
 			DRM_DEBUG_DRIVER("Dirty list is empty\n");
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+			if (!iris3_pcc_dirty)
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 			goto exit;
 		}
 		set_dspp_flush = true;
@@ -916,7 +982,24 @@ void sde_cp_crtc_apply_properties(struct drm_crtc *crtc)
 		else
 			set_lm_flush = true;
 	}
-
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	if (iris3_pcc_dirty) {
+		for (i = 0; i < SDE_CP_CRTC_DSPP_MAX; i++) {
+			prop_node = iris3_prop_node[i];
+			if (prop_node == NULL)
+				continue;
+			sde_cp_crtc_setfeature(prop_node, sde_crtc);
+			/* Set the flush flag to true */
+			if (prop_node->is_dspp_feature)
+				set_dspp_flush = true;
+			else
+				set_lm_flush = true;
+		}
+		iris3_pcc_dirty = false;
+	}
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	list_for_each_entry_safe(prop_node, n, &sde_crtc->ad_dirty,
 				dirty_list) {
 		set_dspp_flush = true;
@@ -1208,6 +1291,12 @@ void sde_cp_crtc_suspend(struct drm_crtc *crtc)
 		sde_cp_update_list(prop_node, sde_crtc, true);
 		list_del_init(&prop_node->active_list);
 	}
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	iris3_pcc_ops = SDE_CP_CRTC_DSPP_MAX;
+	memset(iris3_prop_node, 0, sizeof(iris3_prop_node));
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 
 	list_for_each_entry_safe(prop_node, n, &sde_crtc->ad_active,
 				 active_list) {

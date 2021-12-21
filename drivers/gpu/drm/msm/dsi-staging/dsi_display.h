@@ -239,6 +239,9 @@ struct dsi_display {
 	struct dsi_lane_map lane_map;
 	int cmdline_topology;
 	int cmdline_timing;
+#if defined(CONFIG_PXLW_IRIS3)
+	int cmdline_iris_mode;
+#endif
 	bool is_tpg_enabled;
 	bool ulps_enabled;
 	bool clamp_enabled;

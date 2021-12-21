@@ -394,6 +394,9 @@ void a6xx_preemption_trigger(struct adreno_device *adreno_dev)
 		goto err;
 	}
 
+	if(adreno_dev->next_rb != NULL)
+		trace_adreno_preempt_trigger(adreno_dev->cur_rb, adreno_dev->next_rb,
+			cntl);
 
 	return;
 err:

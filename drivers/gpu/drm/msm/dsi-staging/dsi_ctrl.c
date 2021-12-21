@@ -32,6 +32,9 @@
 #include "dsi_catalog.h"
 
 #include "sde_dbg.h"
+#if defined(CONFIG_PXLW_IRIS3)
+#include "dsi_iris3_api.h"
+#endif
 
 #define DSI_CTRL_DEFAULT_LABEL "MDSS DSI CTRL"
 
@@ -2463,6 +2466,14 @@ static irqreturn_t dsi_ctrl_isr(int irq, void *ptr)
 	/* check error interrupts */
 	if (dsi_ctrl->hw.ops.get_error_status)
 		errors = dsi_ctrl->hw.ops.get_error_status(&dsi_ctrl->hw);
+
+#if defined(CONFIG_PXLW_IRIS3)
+	/* iris handle error */
+	if (errors & 0xff101f) {
+		iris_dsi_error_flag_set();
+		pr_err("%s errors: 0x%lx\n", __func__, (unsigned long int)errors);
+	}
+#endif
 
 	/* clear interrupts */
 	if (dsi_ctrl->hw.ops.clear_interrupt_status)

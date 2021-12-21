@@ -556,8 +556,6 @@ void cam_sensor_query_cap(struct cam_sensor_ctrl_t *s_ctrl,
 		s_ctrl->sensordata->subdev_id[SUB_MODULE_LED_FLASH];
 	query_cap->ois_slot_id =
 		s_ctrl->sensordata->subdev_id[SUB_MODULE_OIS];
-	query_cap->ir_led_slot_id =
-		s_ctrl->sensordata->subdev_id[SUB_MODULE_IR_LED];
 	query_cap->slot_info =
 		s_ctrl->soc_info.index;
 }
@@ -620,6 +618,7 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 {
 	int rc = 0;
 	uint32_t chipid = 0;
+	uint32_t chip_revision = 0;
 	struct cam_camera_slave_info *slave_info;
 
 	slave_info = &(s_ctrl->sensordata->slave_info);
@@ -630,12 +629,37 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 		return -EINVAL;
 	}
 
-	rc = camera_io_dev_read(
+	if(slave_info->sensor_id == 0x5035) {
+	    rc = camera_io_dev_read(
+		&(s_ctrl->io_master_info),
+		slave_info->sensor_id_reg_addr,
+		&chipid, CAMERA_SENSOR_I2C_TYPE_BYTE,
+		CAMERA_SENSOR_I2C_TYPE_WORD);
+	} else {
+            rc = camera_io_dev_read(
 		&(s_ctrl->io_master_info),
 		slave_info->sensor_id_reg_addr,
 		&chipid, CAMERA_SENSOR_I2C_TYPE_WORD,
 		CAMERA_SENSOR_I2C_TYPE_WORD);
+        }
 
+	if(slave_info->sensor_id == 0x0582 || slave_info->sensor_id == 0x1582){
+		rc = camera_io_dev_read(
+			&(s_ctrl->io_master_info),
+			0x0018,
+			&chip_revision, CAMERA_SENSOR_I2C_TYPE_WORD,
+			CAMERA_SENSOR_I2C_TYPE_BYTE);
+		CAM_ERR(CAM_SENSOR, "read chip_revision: 0x%x",chip_revision);
+		if(slave_info->sensor_id == 0x0582 && (chip_revision == 0x02 || chip_revision == 0x03 || chip_revision == 0x08 || chip_revision == 0x09 || chip_revision == 0x10 || chip_revision == 0x18)){
+			CAM_ERR(CAM_SENSOR, "read sensor_id: 0x%x",slave_info->sensor_id);
+		}
+		else if(slave_info->sensor_id == 0x1582 && (chip_revision == 0x0b || chip_revision == 0x1b)){
+			CAM_ERR(CAM_SENSOR, "read sensor_id: 0x%x",slave_info->sensor_id);
+			slave_info->sensor_id = 0x0582;
+		}
+		else
+			return -EINVAL;
+	}
 	CAM_DBG(CAM_SENSOR, "read id: 0x%x expected id 0x%x:",
 			 chipid, slave_info->sensor_id);
 	if (cam_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {

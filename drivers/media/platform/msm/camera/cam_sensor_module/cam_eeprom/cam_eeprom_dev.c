@@ -412,6 +412,9 @@ static int cam_eeprom_spi_driver_remove(struct spi_device *sdev)
 	return 0;
 }
 
+DEVICE_ATTR(calibration_flag, 0664, calibration_flag_show, calibration_flag_store); // For calibration verify
+DEVICE_ATTR(calibration_data, 0664, calibration_data_show, calibration_data_store);  // For calibration data save
+
 static int32_t cam_eeprom_platform_driver_probe(
 	struct platform_device *pdev)
 {
@@ -455,6 +458,15 @@ static int32_t cam_eeprom_platform_driver_probe(
 		CAM_ERR(CAM_EEPROM, "failed: soc init rc %d", rc);
 		goto free_soc;
 	}
+
+CAM_ERR(CAM_EEPROM, "eeprom pdev->id=%d", pdev->id);
+//	if (pdev->id == 0){
+		rc = device_create_file(&pdev->dev, &dev_attr_calibration_data);
+		CAM_ERR(CAM_EEPROM, "creat calibration data sys node rc=%d", rc);
+		rc = device_create_file(&pdev->dev, &dev_attr_calibration_flag);
+		CAM_ERR(CAM_EEPROM, "creat calibration flag sys node rc=%d", rc);
+//	}
+
 	rc = cam_eeprom_update_i2c_info(e_ctrl, &soc_private->i2c_info);
 	if (rc) {
 		CAM_ERR(CAM_EEPROM, "failed: to update i2c info rc %d", rc);
@@ -488,6 +500,13 @@ static int cam_eeprom_platform_driver_remove(struct platform_device *pdev)
 	int                        i;
 	struct cam_eeprom_ctrl_t  *e_ctrl;
 	struct cam_hw_soc_info    *soc_info;
+
+//	if (pdev->id == 0){
+		device_remove_file(&pdev->dev, &dev_attr_calibration_data);
+		CAM_ERR(CAM_EEPROM, "remove calibration node");
+		device_remove_file(&pdev->dev, &dev_attr_calibration_flag);
+		CAM_ERR(CAM_EEPROM, "remove calibration flag node");
+//	}
 
 	e_ctrl = platform_get_drvdata(pdev);
 	if (!e_ctrl) {

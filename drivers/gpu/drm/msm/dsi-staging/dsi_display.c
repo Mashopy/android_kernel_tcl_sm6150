@@ -12,6 +12,7 @@
  *
  */
 
+//#define DEBUG
 #define pr_fmt(fmt)	"msm-dsi-display:[%s] " fmt, __func__
 
 #include <linux/list.h>
@@ -31,6 +32,13 @@
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
 #include "dsi_parser.h"
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+#include "dsi_iris3_api.h"
+#include "dsi_iris3_lightup.h"
+#include "dsi_iris3_lp.h"
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -43,6 +51,14 @@
 
 #define DSI_CLOCK_BITRATE_RADIX 10
 #define MAX_TE_SOURCE_ID  2
+
+#ifdef CONFIG_TOUCHSCREEN_FTS
+extern int fts_esd_check(void);
+#endif
+
+bool hbm_mode = false;
+static bool fod_mode = false;
+u16 g_brightness = 2047;
 
 DEFINE_MUTEX(dsi_display_clk_mutex);
 
@@ -183,6 +199,18 @@ void dsi_rect_intersect(const struct dsi_rect *r1,
 	}
 }
 
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+#undef CONFIG_TCT_SMART_LCD_BACKLIGHT
+#endif
+/* MODIFIED-BEGIN by hongwei.tian, 2019-06-13,BUG-7860934*/
+#if defined(CONFIG_TCT_SMART_LCD_BACKLIGHT)
+static int current_level = 0;
+static unsigned long t_before = 0;
+static unsigned long t_now, diff_ms;
+static unsigned long total_diff_ms;
+static unsigned int delay_ms = 0;
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7860934*/
 int dsi_display_set_backlight(struct drm_connector *connector,
 		void *display, u32 bl_lvl)
 {
@@ -191,7 +219,11 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 	u32 bl_scale, bl_scale_ad;
 	u64 bl_temp;
 	int rc = 0;
-
+/* MODIFIED-BEGIN by hongwei.tian, 2019-06-13,BUG-7860934*/
+#if defined(CONFIG_TCT_SMART_LCD_BACKLIGHT)
+	int i,level_diff;
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7860934*/
 	if (dsi_display == NULL || dsi_display->panel == NULL)
 		return -EINVAL;
 
@@ -203,6 +235,21 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		goto error;
 	}
 
+/* MODIFIED-BEGIN by hongwei.tian, 2019-06-13,BUG-7860934*/
+#if defined(CONFIG_TCT_SMART_LCD_BACKLIGHT)
+	t_now = jiffies;
+	if (t_before != 0)
+		diff_ms = (t_now - t_before) * 1000 / HZ;
+	else
+		diff_ms = 0;
+
+	pr_debug("wqf-----: set level = %d diff_ms = %d \n", bl_lvl,diff_ms);
+
+	t_before = t_now;
+
+	pr_debug("bl_level = %u\n",bl_lvl);
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7860934*/
 	panel->bl_config.bl_level = bl_lvl;
 
 	/* scale backlight */
@@ -222,11 +269,63 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		       dsi_display->name, rc);
 		goto error;
 	}
+/* MODIFIED-BEGIN by hongwei.tian, 2019-06-13,BUG-7860934*/
+#if defined(CONFIG_TCT_SMART_LCD_BACKLIGHT)
+		if (current_level > bl_temp)
+			level_diff = current_level - bl_temp;
+		else
+			level_diff = bl_temp - current_level;
 
+		pr_debug("current_level = %u, bl_lvl = %u, bl_temp = %u\n",
+			current_level, bl_lvl, (u32)bl_temp);
+
+	if (level_diff != 0) {
+		total_diff_ms = total_diff_ms + diff_ms;
+		total_diff_ms = total_diff_ms * 2;
+		if (current_level && bl_temp && (bl_temp <= 300 || current_level <= 300) && level_diff < 50) {
+			delay_ms = diff_ms/level_diff;
+
+			if (delay_ms > 20)
+				delay_ms = 20;
+
+			pr_debug("wqf------level_diff %d, diff_ms=%ld, delay_ms=%d\n", level_diff, diff_ms, delay_ms);
+			if (delay_ms) {
+				for (i=0;i<level_diff;i++) {
+					if (current_level > bl_temp)
+						rc = dsi_panel_set_backlight(panel, --current_level);
+					else
+						rc = dsi_panel_set_backlight(panel, ++current_level);
+					mdelay(delay_ms);
+				}
+			}
+			else {
+				rc = dsi_panel_set_backlight(panel, bl_temp);
+			}
+			if (rc) {
+				pr_err("wled set level failed\n");
+			}
+		}
+		else {
+			delay_ms = 0;
+			rc = dsi_panel_set_backlight(panel, bl_temp);
+			/* MODIFIED-BEGIN by hongwei.tian, 2019-12-14,BUG-8676972*/
+			if (rc) {
+				pr_err("wled set level failed bl_temp = %d\n",bl_temp);
+			}
+			/* MODIFIED-END by hongwei.tian,BUG-8676972*/
+ 		}
+		current_level = bl_temp;
+		total_diff_ms = 0;
+	}
+	else {
+		total_diff_ms = total_diff_ms + diff_ms;
+ 	}
+#else
 	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
 	if (rc)
 		pr_err("unable to set backlight\n");
-
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7860934*/
 	rc = dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 			DSI_CORE_CLK, DSI_CLK_OFF);
 	if (rc) {
@@ -493,7 +592,13 @@ static int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
 	struct dsi_display_ctrl *display_ctrl;
 
 	display->tx_cmd_buf = msm_gem_new(display->drm_dev,
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+			SZ_256K,
+#else
 			SZ_4K,
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 			MSM_BO_UNCACHED);
 
 	if ((display->tx_cmd_buf) == NULL) {
@@ -502,7 +607,13 @@ static int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
 		goto error;
 	}
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	display->cmd_buffer_size = SZ_256K;
+#else
 	display->cmd_buffer_size = SZ_4K;
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 
 	display->aspace = msm_gem_smmu_address_space_get(
 			display->drm_dev, MSM_SMMU_DOMAIN_UNSECURE);
@@ -536,7 +647,13 @@ static int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
 
 	display_for_each_ctrl(cnt, display) {
 		display_ctrl = &display->ctrl[cnt];
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+		display_ctrl->ctrl->cmd_buffer_size = SZ_256K;
+#else
 		display_ctrl->ctrl->cmd_buffer_size = SZ_4K;
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 		display_ctrl->ctrl->cmd_buffer_iova =
 					display->cmd_buffer_iova;
 		display_ctrl->ctrl->vaddr = display->vaddr;
@@ -844,6 +961,10 @@ int dsi_display_check_status(struct drm_connector *connector, void *display,
 		rc = dsi_display_status_reg_read(dsi_display);
 	} else if (status_mode == ESD_MODE_SW_BTA) {
 		rc = dsi_display_status_bta_request(dsi_display);
+#ifdef CONFIG_TOUCHSCREEN_FTS
+	} else if (status_mode == ESD_MODE_I2C_REG_READ) {
+		rc = fts_esd_check();
+#endif
 	} else {
 		pr_warn("Unsupported ESD check mode: %d\n", status_mode);
 		panel->esd_config.esd_enabled = false;
@@ -1069,6 +1190,9 @@ static bool dsi_display_get_cont_splash_status(struct dsi_display *display)
 	}
 	return true;
 }
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+extern void fts_set_aod_mode(int mode);
+#endif
 
 int dsi_display_set_power(struct drm_connector *connector,
 		int power_mode, void *disp)
@@ -1080,30 +1204,61 @@ int dsi_display_set_power(struct drm_connector *connector,
 		pr_err("invalid display/panel\n");
 		return -EINVAL;
 	}
-
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+	dsi_panel_acquire_panel_lock(display->panel);
+	if ((display->panel->power_mode == SDE_MODE_DPMS_LP1 || 
+			display->panel->power_mode == SDE_MODE_DPMS_LP2) &&
+		(power_mode == SDE_MODE_DPMS_LP1 || power_mode == SDE_MODE_DPMS_LP2)){
+		if (hbm_mode)
+			goto exit;
+	}
+#endif
 	switch (power_mode) {
 	case SDE_MODE_DPMS_LP1:
 		rc = dsi_panel_set_lp1(display->panel);
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+		iris_abypass_switch_proc(display, 1, false);
+		fts_set_aod_mode(true);
+#endif
 		break;
 	case SDE_MODE_DPMS_LP2:
 		rc = dsi_panel_set_lp2(display->panel);
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+		if (display->panel->power_mode != SDE_MODE_DPMS_LP1)
+			iris_abypass_switch_proc(display, 1, false);
+		fts_set_aod_mode(true);
+#endif
 		break;
 	case SDE_MODE_DPMS_ON:
 		if (display->panel->power_mode == SDE_MODE_DPMS_LP1 ||
-			display->panel->power_mode == SDE_MODE_DPMS_LP2)
+			display->panel->power_mode == SDE_MODE_DPMS_LP2) {
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+			iris_abypass_switch_proc(display, 0, false);
+#endif
 			rc = dsi_panel_set_nolp(display->panel);
+		}
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+		fts_set_aod_mode(false);
+#endif
 		break;
 	case SDE_MODE_DPMS_OFF:
 	default:
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+		dsi_panel_release_panel_lock(display->panel);
+#endif
 		return rc;
 	}
-
-	pr_debug("Power mode transition from %d to %d %s",
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+exit:
+#endif
+	pr_info("Power mode transition from %d to %d %s",
 		 display->panel->power_mode, power_mode,
 		 rc ? "failed" : "successful");
 	if (!rc)
 		display->panel->power_mode = power_mode;
-
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+	dsi_panel_release_panel_lock(display->panel);
+#endif
 	return rc;
 }
 
@@ -1480,6 +1635,11 @@ static ssize_t debugfs_read_esd_check_mode(struct file *file,
 	case ESD_MODE_SW_SIM_SUCCESS:
 		rc = snprintf(buf, len, "esd_sw_sim_success");
 		break;
+#ifdef CONFIG_TCT_SM6150_T1
+	case ESD_MODE_I2C_REG_READ:
+		rc = snprintf(buf, len, "i2c_reg_read");
+		break;
+#endif
 	default:
 		rc = snprintf(buf, len, "invalid");
 		break;
@@ -2143,7 +2303,9 @@ static int dsi_display_ctrl_power_off(struct dsi_display *display)
 error:
 	return rc;
 }
-
+#if defined(CONFIG_AW8695_HAPTIC)
+extern void aw8695_transport_f0_data(unsigned int data);
+#endif
 static void dsi_display_parse_cmdline_topology(struct dsi_display *display,
 					unsigned int display_type)
 {
@@ -2152,7 +2314,9 @@ static void dsi_display_parse_cmdline_topology(struct dsi_display *display,
 	char *sw_te = NULL;
 	unsigned long cmdline_topology = NO_OVERRIDE;
 	unsigned long cmdline_timing = NO_OVERRIDE;
-
+#if defined(CONFIG_AW8695_HAPTIC)
+	unsigned long cmdline_f0 = NO_OVERRIDE;
+#endif
 	if (display_type >= MAX_DSI_ACTIVE_DISPLAY) {
 		pr_err("display_type=%d not supported\n", display_type);
 		goto end;
@@ -2167,6 +2331,23 @@ static void dsi_display_parse_cmdline_topology(struct dsi_display *display,
 	if (sw_te)
 		display->sw_te_using_wd = true;
 
+#if defined(CONFIG_PXLW_IRIS3)
+	iris3_set_mode_from_cmdline(display, boot_str);
+#endif
+
+#if defined(CONFIG_AW8695_HAPTIC)
+	str = strnstr(boot_str, ":f0=", strlen(boot_str));
+	if (!str)
+		goto end;
+
+	if (kstrtol(str + strlen(":f0="), INT_BASE_10,
+				(unsigned long *)&cmdline_f0)) {
+		pr_err("invalid f0 : %s. \n",
+			boot_str);
+	}
+	pr_info("cmdline_f0=%ld \n", cmdline_f0);
+	aw8695_transport_f0_data((unsigned int) cmdline_f0);
+#endif
 	str = strnstr(boot_str, ":config", strlen(boot_str));
 	if (!str)
 		goto end;
@@ -2879,9 +3060,20 @@ static ssize_t dsi_host_transfer(struct mipi_dsi_host *host,
 		int ctrl_idx = (msg->flags & MIPI_DSI_MSG_UNICAST) ?
 				msg->ctrl : 0;
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+		u32 flags = DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_CUSTOM_DMA_SCHED;
+		if (msg->rx_buf && msg->rx_len)
+			flags |= DSI_CTRL_CMD_READ;
+		rc = dsi_ctrl_cmd_transfer(display->ctrl[ctrl_idx].ctrl, msg,
+					  flags);
+		if (rc < 0) {
+#else
 		rc = dsi_ctrl_cmd_transfer(display->ctrl[ctrl_idx].ctrl, msg,
 					  DSI_CTRL_CMD_FETCH_MEMORY);
 		if (rc) {
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 			pr_err("[%s] cmd transfer failed, rc=%d\n",
 			       display->name, rc);
 			goto error_disable_cmd_engine;
@@ -3733,6 +3925,12 @@ static int dsi_display_res_init(struct dsi_display *display)
 			display->panel->host_config.phy_type;
 	}
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	iris3_parse_params(display->panel_of, display->panel);
+	iris3_init(display, display->panel);
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	rc = dsi_display_parse_lane_map(display);
 	if (rc) {
 		pr_err("Lane map not found, rc=%d\n", rc);
@@ -4937,6 +5135,725 @@ static struct attribute_group dynamic_dsi_clock_fs_attrs_group = {
 	.attrs = dynamic_dsi_clock_fs_attrs,
 };
 
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-23,BUG-7804622*/
+#if defined(CONFIG_PXLW_IRIS3)
+/* MODIFIED-BEGIN by hongwei.tian, 2019-07-01,BUG-7974585*/
+enum {
+        READ_MCF_INIT = 0,
+        READ_MCF_READY,
+        READ_MCF_DONE,
+        READ_MCF_FAIL,
+};
+extern int iris_read_mcf_from_ram( u32 size, u8 *pvalues);
+extern int panel_calibrate_state_get(void);
+extern int panel_calibrate_state_set(int state);
+extern u8 panel_mcf_data[];
+/* MODIFIED-END by hongwei.tian,BUG-7974585*/
+
+ssize_t dsi_lcd_otp_read(struct dsi_display *display,u32 size,char *buf)
+{
+		int rc = 0,*lenp,len = 0;
+		struct drm_panel_otp_config *config;
+		struct dsi_cmd_desc *cmds;
+		u32 flags = 0;
+		struct dsi_display_ctrl *ctrl;
+		struct dsi_panel *panel;
+
+		pr_info("Start read otp cmd\n");
+
+		if (!display) {
+			pr_err("Invalid display\n");
+			return 0;
+		}
+
+		ctrl = &display->ctrl[display->cmd_master_idx];
+		panel = display->panel;
+
+		if (!panel || !ctrl || !ctrl->ctrl)
+			return 0;
+
+		if (!dsi_ctrl_validate_host_state(ctrl->ctrl))
+			return 0;
+
+		rc = dsi_display_cmd_engine_enable(display);
+		if (rc) {
+			pr_err("[%s] failed to enable cmd engine, rc=%d\n",
+				   display->name, rc);
+			return 0;
+		}
+
+		config = &(panel->otp_config);
+		lenp = config->status_cmds_rlen;
+		cmds = config->otp_cmd.cmds;
+		flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ |
+			  DSI_CTRL_CMD_CUSTOM_DMA_SCHED);
+
+		memset(config->status_buf, 0x0, SZ_1K);
+		if (config->otp_cmd.state == DSI_CMD_SET_STATE_LP)
+			cmds[0].msg.flags |= MIPI_DSI_MSG_USE_LPM;
+
+		cmds[0].msg.type = 0x06;
+		cmds[0].msg.rx_buf = config->status_buf;
+		cmds[0].msg.rx_len = config->status_cmds_rlen[0];
+
+		iris3_panel_cmd_passthrough(panel,&config->otp_cmd);
+		len = (size <= lenp[0]) ? size : lenp[0];
+		memcpy(buf, config->status_buf, len);
+		dsi_display_cmd_engine_disable(display);
+
+		pr_info("read otp  len = %d , \n",len);
+		return len;
+}
+EXPORT_SYMBOL(dsi_lcd_otp_read);
+
+ssize_t dsi_lcd_t1pro_otp_read(struct dsi_display *display, u32 size, char *buf)
+{
+	int rc = 0, len = 0;
+	struct dsi_display_ctrl *ctrl;
+	struct dsi_panel *panel;
+	u8 read_buf[106] = {0}, data, otp_data;
+	u8 otp_flag1, otp_flag2;
+	int i;
+	u8 read_offset[53] =
+		       {0x01,0x03,0x05,0x07,0x09,0x0B,0x0D,0x0F,0x11,0x13,
+	                0x15,0x17,0x19,0x1B,0x1D,0x1F,0x21,0x23,0x25,0x27,
+	                0x29,0x2B,0x2F,0x31,0x33,0x35,0x37,0x39,0x3B,0x3F,
+	                0x41,0x43,0x45,0x47,0x49,0x4B,0x4D,0x4F,0x51,0x53,
+	                0x55,0x58,0x5A,0x5C,0x5E,0x60,0x62,0x64,0x66,0x68,
+	                0x6A,0x6C,0x6E};
+
+	char cmd1[2] = {0xfe, 0x42};
+	char cmd2[2] = {0xe6, 0x41};
+	char cmd3[2] = {0x01, 0x18};
+	char cmd4[2] = {0x10, 0x0b};
+	char cmd5[2] = {0x11, 0x0c};
+	char cmd6[2] = {0xfe, 0x40};
+	char cmd7[2] = {0xf2, 0x82};
+	struct dsi_cmd_desc otp_cmds[7] = {
+		{{0, 0x39, 0, 0, 0, sizeof(cmd1), cmd1, 0, NULL}, 0, 1},
+		{{0, 0x39, 0, 0, 0, sizeof(cmd2), cmd2, 0, NULL}, 0, 1},
+		{{0, 0x39, 0, 0, 0, sizeof(cmd3), cmd3, 0, NULL}, 0, 1},
+		{{0, 0x39, 0, 0, 0, sizeof(cmd4), cmd4, 0, NULL}, 0, 1},
+		{{0, 0x39, 0, 0, 0, sizeof(cmd5), cmd5, 0, NULL}, 0, 1},
+		{{0, 0x39, 0, 0, 0, sizeof(cmd6), cmd6, 0, NULL}, 0, 1},
+		{{0, 0x39, 0, 0, 0, sizeof(cmd7), cmd7, 0, NULL}, 1, 1},
+	};
+
+	struct dsi_panel_cmd_set otp_cmdset = {
+		.state = DSI_CMD_SET_STATE_HS,
+		.count = 7,
+		.cmds = otp_cmds,
+	};
+
+	char page_cmd[2] = {0xfe, 0x56};
+	struct dsi_cmd_desc page_cmds = {
+		{0, 0x39, 0, 0, 0, sizeof(page_cmd), page_cmd, 0, NULL}, 1, 1};
+
+	struct dsi_panel_cmd_set page_cmdset = {
+		.state = DSI_CMD_SET_STATE_HS,
+		.count = 1,
+		.cmds = &page_cmds,
+	};
+
+	char read_cmd = 0x01;
+	struct dsi_cmd_desc read_cmds = {
+		{0, 0x06, 0, 0, 0, sizeof(read_cmd), &read_cmd, 1, &data}, 1, 1};
+
+	struct dsi_panel_cmd_set read_cmdset = {
+		.state = DSI_CMD_SET_STATE_LP,
+		.count = 1,
+		.cmds = &read_cmds,
+	};
+
+	char otp_flag_cmd = 0xb6;
+	struct dsi_cmd_desc otp_flag_cmds = {
+		{0, 0x06, 0, 0, 0, sizeof(otp_flag_cmd), &otp_flag_cmd, 1, &otp_data}, 1, 1};
+
+	struct dsi_panel_cmd_set otp_flag_cmdset = {
+		.state = DSI_CMD_SET_STATE_LP,
+		.count = 1,
+		.cmds = &otp_flag_cmds,
+	};
+
+	pr_info("Start read otp cmd\n");
+
+	if (!display) {
+		pr_err("Invalid display\n");
+		return 0;
+	}
+
+	ctrl = &display->ctrl[display->cmd_master_idx];
+	panel = display->panel;
+
+	if (!panel || !ctrl || !ctrl->ctrl)
+		return 0;
+
+	if (!dsi_ctrl_validate_host_state(ctrl->ctrl))
+		return 0;
+
+	rc = dsi_display_cmd_engine_enable(display);
+	if (rc) {
+		pr_err("[%s] failed to enable cmd engine, rc=%d\n",
+			   display->name, rc);
+		return 0;
+	}
+
+	page_cmd[1] = 0x44;
+	iris3_panel_cmd_passthrough(panel, &page_cmdset);
+	iris3_panel_cmd_passthrough(panel, &otp_flag_cmdset);
+	otp_flag2 = otp_data;
+	otp_flag_cmd = 0xb7;
+	iris3_panel_cmd_passthrough(panel, &otp_flag_cmdset);
+	otp_flag1 = otp_data;
+	pr_debug("%s, otp flag: %x, %x\n", __func__, otp_flag1, otp_flag2);
+	/*otp_flag1 b7 1st    otp_flag2 b6, 2nd */
+	if (otp_flag1 != 0x0c &&  otp_flag2 != 0x0c) {
+		pr_err(" no otp code in panel !!!!\n");
+		dsi_display_cmd_engine_disable(display);
+		return 0;
+	}
+
+	if (otp_flag2 == 0x0c)
+		cmd2[1] = 0x42;
+
+	iris3_panel_cmd_passthrough(panel, &otp_cmdset);
+	mdelay(100);
+
+	page_cmd[1] = 0x54;
+	iris3_panel_cmd_passthrough(panel, &page_cmdset);
+	for (i=0;i<53;i++) {
+		read_cmd = read_offset[i];
+		iris3_panel_cmd_passthrough(panel, &read_cmdset);
+		read_buf[i] = data;
+		//pr_info("dsi addr=0x%x, read_buf[%d]%d \n", read_offset[i], i, read_buf[i]);
+	}
+
+	page_cmd[1] = 0x56;
+	iris3_panel_cmd_passthrough(panel, &page_cmdset);
+	mdelay(1);
+	for (i=0;i<53;i++) {
+		read_cmd = read_offset[i];
+		iris3_panel_cmd_passthrough(panel, &read_cmdset);
+		read_buf[53+i] = data;
+		//pr_info("dsi addr=0x%x, read_buf[%d]%d \n", read_offset[i], 53+i, read_buf[53+i]);
+	}
+
+	len = size;
+	memcpy(buf, &read_buf, len);
+	dsi_display_cmd_engine_disable(display);
+
+	pr_info("read otp  len = %d\n", len);
+	return len;
+}
+EXPORT_SYMBOL(dsi_lcd_t1pro_otp_read);
+
+bool IriscrcCheckForMcf(const char *data_in, int len_in)
+{
+    uint16_t temp = 0;
+    uint16_t crc = 0xffff;
+	int i, j;
+
+    for (i = 0; i < len_in-2; i++) {
+        for (j = 0; j < 8; j++) {
+            temp = ((data_in[i] << j) & 0x80) ^ ((crc & 0x8000) >> 8);
+            crc <<= 1;
+            if (temp != 0)
+                crc ^= 0x1021;
+        }
+    }
+	if (data_in[i] == 0 && data_in[i+1] == 0) {
+		pr_err("CRC value = 0 => CRC not pass \n");
+		return false;
+	}
+	if ((crc >> 8) != data_in[i+1] || (crc & 0x0ff) != data_in[i]) {
+		pr_err("=> CRC not pass \n");
+		return false;
+	}
+
+	return true;
+}
+EXPORT_SYMBOL(IriscrcCheckForMcf);
+/* MODIFIED-BEGIN by hongwei.tian, 2019-12-17,BUG-8681047*/
+#if defined(CONFIG_TCT_SM6150_T1_PRO)
+u8 panel_batch_id = 0xff;
+extern int iris3_abypass_mode_get(void);
+int dsi_read_panel_batch_id(struct dsi_display *display)
+{
+	struct dsi_display_ctrl *ctrl;
+	struct dsi_panel *panel;
+    struct mipi_dsi_device *dsi;
+	u8 batch_id_B3,batch_id_B4,batch_data;
+	u8 write_reg;
+	ssize_t err;
+
+	char page_cmd[2] = {0xfe, 0x44};
+	struct dsi_cmd_desc page_cmds = {
+		{0, 0x39, 0, 0, 0, sizeof(page_cmd), page_cmd, 0, NULL}, 1, 1};
+
+	struct dsi_panel_cmd_set page_cmdset = {
+		.state = DSI_CMD_SET_STATE_HS,
+		.count = 1,
+		.cmds = &page_cmds,
+	};
+
+	char batch_flag_cmd = 0xb4;
+	struct dsi_cmd_desc batch_flag_cmds = {
+		{0, 0x06, 0, 0, 0, sizeof(batch_flag_cmd), &batch_flag_cmd, 1, &batch_data}, 1, 1};
+
+	struct dsi_panel_cmd_set batch_flag_cmdset = {
+		.state = DSI_CMD_SET_STATE_LP,
+		.count = 1,
+		.cmds = &batch_flag_cmds,
+	};
+
+	pr_info("Start read panel batch number\n");
+
+	if (!display) {
+		pr_err("Invalid display\n");
+		return 0;
+	}
+
+	ctrl = &display->ctrl[display->cmd_master_idx];
+	panel = display->panel;
+	dsi = &panel->mipi_device;
+
+	if (!panel || !ctrl || !ctrl->ctrl)
+		return 0;
+
+	if (!dsi_ctrl_validate_host_state(ctrl->ctrl))
+		return 0;
+
+	if(iris3_abypass_mode_get() == PASS_THROUGH_MODE)
+	{
+		pr_info("read panel batch id use iris \n");
+		batch_data = 0;
+		iris3_panel_cmd_passthrough(panel, &page_cmdset);
+		iris3_panel_cmd_passthrough(panel, &batch_flag_cmdset);
+		batch_id_B4 = batch_data;
+		pr_info("read panel batch id B4 = 0x%x\n", batch_id_B4);
+
+		batch_flag_cmd = 0xb3;
+		batch_data = 0;
+		iris3_panel_cmd_passthrough(panel, &page_cmdset);
+		iris3_panel_cmd_passthrough(panel, &batch_flag_cmdset);
+		batch_id_B3 = batch_data;
+		pr_info("read panel batch id B3 = 0x%x\n", batch_id_B3);
+
+		page_cmd[1] = 0x00;
+		iris3_panel_cmd_passthrough(panel, &page_cmdset);
+	}
+	else
+	{
+		/* code */
+		pr_info("read panel batch id use dsi \n");
+		write_reg = 0x44;
+		err = mipi_dsi_dcs_write(dsi, 0xFE,&write_reg, 1);
+		batch_id_B4 = 0 ;
+		err = mipi_dsi_dcs_read(dsi, 0xB4,&batch_id_B4, 1);
+		pr_info("read batch id B4 data = %d , \n",batch_id_B4);
+
+		batch_id_B3 = 0 ;
+		err = mipi_dsi_dcs_read(dsi, 0xB3,&batch_id_B3, 1);
+		pr_info("read batch id B3 data = %d , \n",batch_id_B3);
+
+		write_reg = 0x00;
+		err = mipi_dsi_dcs_write(dsi, 0xFE,&write_reg, 1);
+	}
+
+	if(batch_id_B4 || batch_id_B3)
+	{
+		if((batch_id_B4 & 0x80) || (batch_id_B3 & 0x80) )
+			panel_batch_id = 1;
+		else
+			panel_batch_id = 0;
+	}
+	else
+	{
+		pr_info("no panel batch id readed \n");
+	}
+
+	return 1;
+}
+EXPORT_SYMBOL(dsi_read_panel_batch_id);
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-8681047*/
+
+#endif
+
+static ssize_t sysfs_dsi_lcd_otp_read(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+#if defined(CONFIG_PXLW_IRIS3)
+	int len = 0, count = 0,start = 0;
+	u8 temp_buf[120],*temp_p;
+	struct dsi_display *display;
+	/* MODIFIED-BEGIN by hongwei.tian, 2019-07-01,BUG-7974585*/
+	int calibrate_state = READ_MCF_INIT;
+
+	pr_debug("Start transfer read otp cmd PXLW_IRIS3 \n");
+
+	memset(temp_buf, 0x0, 120);
+	calibrate_state = panel_calibrate_state_get();
+	if(calibrate_state == READ_MCF_DONE)
+	{
+		pr_debug("otp data form ram  \n");
+		count = iris_read_mcf_from_ram(106,temp_buf);
+	}
+	else
+	{
+		display = dev_get_drvdata(dev);
+		if (!display) {
+			pr_err("Invalid display\n");
+			return 0;
+		}
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+		count = dsi_lcd_t1pro_otp_read(display, 106, temp_buf);
+#else
+		count = dsi_lcd_otp_read(display, 106, temp_buf);
+#endif
+	}
+	/* MODIFIED-END by hongwei.tian,BUG-7974585*/
+	temp_p = temp_buf;
+	for (start = 0; start < count; start++)
+	{
+		len += snprintf((buf+len), PAGE_SIZE, "%d ", *temp_p);
+		temp_p ++;
+	}
+
+	len += snprintf((buf+len), PAGE_SIZE, "\n");
+	return len;
+#else
+	int i, rc = 0, count = 0, start = 0, *lenp,len = 0;
+	struct drm_panel_otp_config *config;
+	struct dsi_cmd_desc *cmds;
+	u32 flags = 0;
+	struct dsi_display *display;
+	struct dsi_display_ctrl *ctrl;
+	struct dsi_panel *panel;
+	u8 * temp_p;
+
+	pr_info("Start transfer read otp cmd\n");
+
+	display = dev_get_drvdata(dev);
+	if (!display) {
+		pr_err("Invalid display\n");
+		return 0;
+	}
+
+	ctrl = &display->ctrl[display->cmd_master_idx];
+	panel = display->panel;
+
+	if (!panel || !ctrl || !ctrl->ctrl)
+		return 0;
+
+	if (!dsi_ctrl_validate_host_state(ctrl->ctrl))
+		return 0;
+
+	rc = dsi_display_cmd_engine_enable(display);
+	if (rc) {
+		pr_err("[%s] failed to enable cmd engine, rc=%d\n",
+		       display->name, rc);
+		return 0;
+	}
+
+	config = &(panel->otp_config);
+	lenp = config->status_cmds_rlen;
+	count = config->otp_cmd.count;
+	cmds = config->otp_cmd.cmds;
+	flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ |
+		  DSI_CTRL_CMD_CUSTOM_DMA_SCHED);
+
+	pr_info("read otp cmd count = %d , \n",count); // MODIFIED by hongwei.tian, 2019-06-06,BUG-7808648
+
+	for (i = 0; i < count; ++i) {
+		memset(config->status_buf, 0x0, SZ_1K);
+		if (cmds[i].last_command) {
+			cmds[i].msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+			flags |= DSI_CTRL_CMD_LAST_COMMAND;
+		}
+		if (config->otp_cmd.state == DSI_CMD_SET_STATE_LP)
+			cmds[i].msg.flags |= MIPI_DSI_MSG_USE_LPM;
+		cmds[i].msg.rx_buf = config->status_buf;
+		cmds[i].msg.rx_len = config->status_cmds_rlen[i];
+		rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmds[i].msg, flags);
+		if (rc <= 0) {
+			pr_err("rx cmd transfer failed rc=%d\n", rc);
+			return 0;
+		}
+		temp_p = config->status_buf;
+		for (start = 0; start < lenp[i]; start++)
+		{
+			len += snprintf((buf+len), PAGE_SIZE, "%2x ", *temp_p);
+			temp_p ++;
+		}
+
+		len += snprintf((buf+len), PAGE_SIZE, "\n");
+	}
+	dsi_display_cmd_engine_disable(display);
+	return len;
+/* MODIFIED-BEGIN by hongwei.tian, 2019-06-06,BUG-7808648*/
+#endif
+}
+
+u8 panel_calibrate_status = 0 ;
+static ssize_t sysfs_panel_calibrate_status_read(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", panel_calibrate_status);
+}
+
+static ssize_t sysfs_panel_calibrate_status_write(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+
+	u8 val;
+
+	kstrtou8(buf, 0, &val);
+
+	if(val<=3)
+		panel_calibrate_status = val;
+
+	return count;
+ }
+
+static DEVICE_ATTR(lcd_otp_data, S_IRUGO,
+			sysfs_dsi_lcd_otp_read,
+			NULL);
+
+static DEVICE_ATTR(panel_calibrate, 0664,
+			sysfs_panel_calibrate_status_read,
+			sysfs_panel_calibrate_status_write);
+
+static struct attribute *lcd_otp_data_fs_attrs[] = {
+	&dev_attr_lcd_otp_data.attr,
+    &dev_attr_panel_calibrate.attr,
+    /* MODIFIED-END by hongwei.tian,BUG-7808648*/
+	NULL,
+};
+static struct attribute_group lcd_otp_data_fs_attrs_group = {
+	.attrs = lcd_otp_data_fs_attrs,
+};
+/* MODIFIED-END by hongwei.tian,BUG-7804622*/
+
+static ssize_t sysfs_hbm_read(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", hbm_mode);
+}
+
+static ssize_t sysfs_hbm_write(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct dsi_display *display;
+	struct dsi_panel *panel;
+	struct mipi_dsi_device *dsi;
+	u8 val;
+
+	display = dev_get_drvdata(dev);
+	if (!display) {
+		pr_err("Invalid display\n");
+		return count;
+	}
+
+	panel = display->panel;
+	dsi = &panel->mipi_device;
+
+	mutex_lock(&panel->panel_lock);
+	kstrtou8(buf, 0, &val);
+
+	if (val == 1) {
+		hbm_mode = true;
+	} else {
+		hbm_mode = false;
+	}
+
+	pr_info("hbm_mode=%d, power_mode=%d\n", hbm_mode, panel->power_mode);
+
+	if (!panel->panel_initialized) {
+		pr_err("Panel not initialized\n");
+		goto end;
+	}
+	if (panel->power_mode == SDE_MODE_DPMS_LP1 || panel->power_mode == SDE_MODE_DPMS_LP2) {
+		if (hbm_mode == true)
+			panel_set_nolp(panel);
+		else
+			panel_set_lp1(panel);
+	}
+
+	iris3_update_backlight(g_brightness);
+
+end:
+	mutex_unlock(&panel->panel_lock);
+	return count;
+}
+
+static DEVICE_ATTR(hbm, 0664, sysfs_hbm_read, sysfs_hbm_write);
+
+static ssize_t sysfs_fod_read(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", fod_mode);
+}
+
+static ssize_t sysfs_fod_write(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct dsi_display *display;
+	struct dsi_panel *panel;
+	struct mipi_dsi_device *dsi;
+	u8 val;
+
+	display = dev_get_drvdata(dev);
+	if (!display) {
+		pr_err("Invalid display\n");
+		return count;
+	}
+
+	panel = display->panel;
+	dsi = &panel->mipi_device;
+
+	mutex_lock(&panel->panel_lock);
+	kstrtou8(buf, 0, &val);
+
+	if(val == 1)
+		fod_mode = true;
+	else
+		fod_mode = false;
+
+	if (!panel->panel_initialized) {
+		pr_err("Panel not initialized\n");
+		goto end;
+	}
+#if defined(CONFIG_PXLW_IRIS3)
+	iris3_set_panel_fod(dsi, fod_mode);
+#else
+	mipi_dsi_dcs_set_fod(dsi, fod_mode);
+#endif
+
+end:
+	mutex_unlock(&panel->panel_lock);
+	return count;
+}
+static DEVICE_ATTR(fod, 0664, sysfs_fod_read, sysfs_fod_write);
+
+#if defined(CONFIG_PXLW_IRIS3)
+static ssize_t sysfs_lp1_enable_write(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct dsi_display *display;
+	struct dsi_panel *panel;
+	struct mipi_dsi_device *dsi;
+	u8 val, write_reg;
+	char cmd[2] = {0x00};
+	struct dsi_cmd_desc cmds = {
+		{0, 0x39, 0, 0, 0, sizeof(cmd), cmd, 0, NULL}, 1, 1};
+
+	struct dsi_panel_cmd_set cmdset = {
+		.state = DSI_CMD_SET_STATE_HS,
+		.count = 1,
+		.cmds = &cmds,
+	};
+
+	display = dev_get_drvdata(dev);
+	if (!display) {
+		pr_err("Invalid display\n");
+		return 0;
+	}
+
+	panel = display->panel;
+	mutex_lock(&panel->panel_lock);
+	if (!panel->panel_initialized) {
+		pr_err("Panel not initialized\n");
+		mutex_unlock(&panel->panel_lock);
+		return count;
+	}
+	dsi = &panel->mipi_device;
+
+	kstrtou8(buf, 0, &val);
+
+	if (iris3_abypass_mode_get() == PASS_THROUGH_MODE) {
+		cmd[0] = 0xFE;
+		cmd[1] = 0x00;
+		iris3_panel_cmd_passthrough(panel, &cmdset);
+		if (val == 1)
+			cmd[0] = 0x39;
+		else if (val == 0)
+			cmd[0] = 0x38;
+		iris3_panel_cmd_passthrough(panel, &cmdset);
+	} else {
+		write_reg = 0x00;
+		mipi_dsi_dcs_write(dsi, 0xFE, &write_reg, 1);
+		if (val == 1)
+			mipi_dsi_dcs_write(dsi, 0x39, &write_reg, 1);
+		else
+			mipi_dsi_dcs_write(dsi, 0x38, &write_reg, 1);
+	}
+
+	mutex_unlock(&panel->panel_lock);
+	return count;
+}
+static DEVICE_ATTR(lp1_enable, 0664, NULL, sysfs_lp1_enable_write);
+#endif
+
+static ssize_t sysfs_dsc_brightness_write(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct dsi_display *display;
+	struct dsi_panel *panel;
+	struct mipi_dsi_device *dsi;
+	u16 brightness;
+
+	display = dev_get_drvdata(dev);
+	if (!display) {
+		pr_err("Invalid display\n");
+		return 0;
+	}
+
+	panel = display->panel;
+	if (!panel->panel_initialized) {
+		pr_err("Panel not initialized\n");
+		return count;
+	}
+	dsi = &panel->mipi_device;
+
+	kstrtou16(buf, 0, &brightness);
+
+	if (brightness < 0 || brightness > 2047) {
+		pr_err("brightness is error value\n");
+		return count;
+	}
+
+#if defined(CONFIG_PXLW_IRIS3)
+	iris3_update_backlight(brightness);
+#else
+	mipi_dsi_dcs_set_display_brightness(dsi, brightness);
+#endif
+
+
+	return count;
+}
+
+static ssize_t sysfs_dsc_brightness_read(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", g_brightness);
+}
+
+static DEVICE_ATTR(dcs_brightness, 0664, sysfs_dsc_brightness_read, sysfs_dsc_brightness_write);
+
+static struct attribute *hbm_fs_attrs[] = {
+	&dev_attr_hbm.attr,
+	&dev_attr_fod.attr,
+	&dev_attr_dcs_brightness.attr,
+#if defined(CONFIG_PXLW_IRIS3)
+	&dev_attr_lp1_enable.attr,
+#endif
+	NULL,
+};
+static struct attribute_group hbm_fs_attrs_group = {
+	.attrs = hbm_fs_attrs,
+};
+
 static int dsi_display_validate_split_link(struct dsi_display *display)
 {
 	int i, rc = 0;
@@ -4982,6 +5899,19 @@ static int dsi_display_sysfs_init(struct dsi_display *display)
 		rc = sysfs_create_group(&dev->kobj,
 			&dynamic_dsi_clock_fs_attrs_group);
 
+	/* MODIFIED-BEGIN by hongwei.tian, 2019-05-23,BUG-7804622*/
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+	display->panel->otp_config.otp_enabled = true;
+#endif
+	if (display->panel->otp_config.otp_enabled)
+		rc = sysfs_create_group(&dev->kobj,
+			&lcd_otp_data_fs_attrs_group);
+			/* MODIFIED-END by hongwei.tian,BUG-7804622*/
+
+	if (display->panel->bl_config.type == DSI_BACKLIGHT_DCS)
+		rc = sysfs_create_group(&dev->kobj,
+			&hbm_fs_attrs_group);
+
 	return rc;
 
 }
@@ -4994,6 +5924,11 @@ static int dsi_display_sysfs_deinit(struct dsi_display *display)
 		sysfs_remove_group(&dev->kobj,
 			&dynamic_dsi_clock_fs_attrs_group);
 
+	/* MODIFIED-BEGIN by hongwei.tian, 2019-05-23,BUG-7804622*/
+	if (display->panel->otp_config.otp_enabled)
+		sysfs_remove_group(&dev->kobj,
+			&lcd_otp_data_fs_attrs_group);
+			/* MODIFIED-END by hongwei.tian,BUG-7804622*/
 	return 0;
 
 }
@@ -6978,8 +7913,22 @@ int dsi_display_prepare(struct dsi_display *display)
 					display->name, rc);
 		goto error;
 	}
-
+#if defined(CONFIG_PXLW_IRIS3) || defined(CONFIG_PXLW_IRIS5)
+	if (display->panel->div_clk1 == NULL) {
+		display->panel->div_clk1 = clk_get(display->panel->parent, "iris3_div_clk1");
+		if (IS_ERR(display->panel->div_clk1)) {
+			pr_err("%s:Unable to get div_clk1\n", __func__);
+			display->panel->div_clk1 = NULL;
+		} else {
+			rc = clk_prepare_enable(display->panel->div_clk1);
+			pr_debug("%s: iris get div_clk1 ok", __func__);
+		}
+	}
+#endif
 	if (!display->is_cont_splash_enabled) {
+#if defined(CONFIG_PXLW_IRIS3) || defined(CONFIG_PXLW_IRIS5)
+		dsi_iris_vdd_on(display->panel);
+#endif
 		/*
 		 * For continuous splash usecase we skip panel
 		 * pre prepare since the regulator vote is already
@@ -7094,6 +8043,11 @@ error_panel_post_unprep:
 error:
 	mutex_unlock(&display->display_lock);
 	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT);
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	iris3_display_prepare(display);
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	return rc;
 }
 
@@ -7383,6 +8337,12 @@ int dsi_display_enable(struct dsi_display *display)
 
 		dsi_display_config_ctrl_for_cont_splash(display);
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+		iris3_display_enable(display);
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
+
 		rc = dsi_display_splash_res_cleanup(display);
 		if (rc) {
 			pr_err("Continuous splash res cleanup failed, rc=%d\n",
@@ -7392,6 +8352,11 @@ int dsi_display_enable(struct dsi_display *display)
 
 		display->panel->panel_initialized = true;
 		pr_debug("cont splash enabled, display enable not required\n");
+/* MODIFIED-BEGIN by hongwei.tian, 2019-07-01,BUG-7974585*/
+#if defined(CONFIG_TCT_SM6150_T1_PRO)
+		dsi_read_panel_batch_id(display);
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7974585*/
 		return 0;
 	}
 

@@ -492,5 +492,11 @@ config IR_MSM_GENI
 
 	   To compile this driver as a module, choose M here: the
 	   module will be called msm-geni-ir.
+	   
+config PWM_KOOKONG
+	tristate "GPIO PWM IR for Kookong"	
+	help
+		Select this option to enable PWM driver for the  IR
+
 
 endif #RC_CORE

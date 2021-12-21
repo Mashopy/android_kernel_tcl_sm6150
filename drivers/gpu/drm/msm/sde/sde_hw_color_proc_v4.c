@@ -79,6 +79,12 @@ static int sde_write_3d_gamut(struct sde_hw_blk_reg_map *hw,
 		reg |= ((tbl_off) & (BIT(11) - 1));
 		SDE_REG_WRITE(hw, base + GAMUT_TABLE_SEL_OFF, reg);
 		for (j = 0; j < tbl_len; j++) {
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+			DRM_DEBUG_DRIVER("[%d][%4d]=%03x%03x%03x\n", i, j,
+					payload->col[i][j].c0 & 0xffff, payload->col[i][j].c2_c1 >> 16, payload->col[i][j].c2_c1 & 0xffff);
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 			SDE_REG_WRITE(hw, base + GAMUT_LOWER_COLOR_OFF,
 					payload->col[i][j].c2_c1);
 			SDE_REG_WRITE(hw, base + GAMUT_UPPER_COLOR_OFF,
@@ -123,6 +129,11 @@ void sde_setup_dspp_3d_gamutv4(struct sde_hw_dspp *ctx, void *cfg)
 		return;
 	}
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	DRM_INFO("enable gamut feature\n");
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	payload = hw_cfg->payload;
 	sde_write_3d_gamut(&ctx->hw, payload, ctx->cap->sblk->gamut.base,
 		&op_mode, DSPP, GAMUT_3D_SCALE_OFF_SZ, GAMUT_3D_SCALEB_OFF_SZ);

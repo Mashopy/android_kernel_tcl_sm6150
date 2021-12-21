@@ -3259,11 +3259,13 @@ static int dwc3_msm_vbus_notifier(struct notifier_block *nb,
 
 	mdwc->vbus_active = event;
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	if (get_psy_type(mdwc) == POWER_SUPPLY_TYPE_USB_CDP &&
 			mdwc->vbus_active) {
 		dev_dbg(mdwc->dev, "Connected to CDP, pull DP up\n");
 		usb_phy_drive_dp_pulse(mdwc->hs_phy, DP_PULSE_WIDTH_MSEC);
 	}
+#endif
 
 	if ((dwc->dr_mode == USB_DR_MODE_OTG) && !mdwc->in_restart)
 		queue_work(mdwc->dwc3_wq, &mdwc->resume_work);
@@ -3600,6 +3602,23 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	int ret = 0, size = 0, i;
 	u32 val;
 	unsigned long irq_type;
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (dev && node && of_property_read_bool(node, "extcon")) {
+		struct extcon_dev *edev=NULL;
+		edev = extcon_get_edev_by_phandle(dev, 0);
+		if (IS_ERR(edev)) {
+			if (PTR_ERR(edev) == -EPROBE_DEFER) {
+				pr_err("Could not get extcon, deferring dwc3-msm probe\n");
+				return -EPROBE_DEFER;
+			} else {
+				pr_err("Could not get extcon(%ld), stop dwc3-msm probe\n", 
+						PTR_ERR(edev));
+				return PTR_ERR(edev);
+			}
+		}
+	}
+#endif
 
 	mdwc = devm_kzalloc(&pdev->dev, sizeof(*mdwc), GFP_KERNEL);
 	if (!mdwc)

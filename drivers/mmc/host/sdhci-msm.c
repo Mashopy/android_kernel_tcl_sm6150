@@ -327,6 +327,55 @@ void sdhci_msm_writel_relaxed(u32 val, struct sdhci_host *host, u32 offset)
 /* Timeout value to avoid infinite waiting for pwr_irq */
 #define MSM_PWR_IRQ_TIMEOUT_MS 5000
 
+/* [PLATFORM]-Add-BEGIN by TCTNB.YuBin, 2019/5/6, Add the SD-detection interface to MMISW */
+#ifdef CONFIG_TCT_SM6150_COMMON
+#define SD_DETECT 99
+#endif
+/* [PLATFORM]-Add-END by TCTNB.YuBin */
+
+/*[FEATURE]-ADD-BEGIN TCTNB.Yubin, 2019/5/6, take slot can be see by app*/
+#ifdef CONFIG_TCT_SM6150_COMMON
+static struct mmc_host *slot_host;
+static ssize_t sdcard_slot_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+        return snprintf(buf, PAGE_SIZE, "%u\n", gpio_get_value(SD_DETECT));
+}
+
+
+static DEVICE_ATTR(slot_present, 0444, sdcard_slot_show, NULL);
+static struct class * sdcard_device_class;
+static struct device * sdcard_slot_dev;
+static int sdcard_slot_flag = 0;
+static void sdcard_class_device_register(void)
+{
+	int rc = 0;
+	if (sdcard_slot_flag == 0)
+	{
+		sdcard_slot_flag = 1;
+		sdcard_device_class = class_create(THIS_MODULE, "sdcard_device");
+		if (IS_ERR(sdcard_device_class))
+			pr_err("Failed to create class(sdcard_device_class)!\n");
+
+		sdcard_slot_dev = device_create(sdcard_device_class, NULL, 0, NULL, "sdcard_slot");
+		if (IS_ERR(sdcard_slot_dev))
+			pr_err("Failed to create device(sdcard_slot)!\n");
+
+		device_create_file(sdcard_slot_dev, &dev_attr_slot_present);
+		if ( rc < 0)
+			pr_err("Failed to create device file(%s)!\n", dev_attr_slot_present.attr.name);
+	}
+}
+
+static void sdcard_class_device_unregister(void)
+{
+	if (sdcard_device_class != NULL) {
+		class_destroy(sdcard_device_class);
+		sdcard_device_class = NULL;
+	}
+}
+#endif
+/*[FEATURE]-ADD-END TCTNB.Yubin*/
+
 static const u32 tuning_block_64[] = {
 	0x00FF0FFF, 0xCCC3CCFF, 0xFFCC3CC3, 0xEFFEFFFE,
 	0xDDFFDFFF, 0xFBFFFBFF, 0xFF7FFFBF, 0xEFBDF777,
@@ -1677,6 +1726,16 @@ static int sdhci_msm_parse_pinctrl_info(struct device *dev,
 		dev_err(dev, "Could not get sleep pinstates, err:%d\n", ret);
 		goto out;
 	}
+
+#ifdef CONFIG_TCT_SM6150_COMMON
+       pctrl_data->pins_onetime = pinctrl_lookup_state(
+                       pctrl_data->pctrl, "onetime");
+       if (IS_ERR(pctrl_data->pins_onetime)) {
+               ret = PTR_ERR(pctrl_data->pins_onetime);
+               dev_err(dev, "Could not get onetime pinstates, err:%d\n", ret);
+               goto out;
+       }
+#endif
 
 	pctrl_data->pins_drv_type_400KHz = pinctrl_lookup_state(
 			pctrl_data->pctrl, "ds_400KHz");
@@ -5135,6 +5194,10 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 		 */
 		sdhci_msm_setup_pins(msm_host->pdata, true);
 
+#ifdef CONFIG_TCT_SM6150_COMMON
+               pinctrl_select_state(msm_host->pdata->pctrl_data->pctrl,
+                       msm_host->pdata->pctrl_data->pins_onetime);
+#endif
 		/*
 		 * This delay is needed for stabilizing the card detect GPIO
 		 * line after changing the pull configs.
@@ -5239,6 +5302,19 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 		       mmc_hostname(host->mmc), __func__, ret);
 		device_remove_file(&pdev->dev, &msm_host->auto_cmd21_attr);
 	}
+
+/*[FEATURE]-ADD-BEGIN TCTNB.Yubin, 11/07/2018, take slot can be see by app*/
+#ifdef CONFIG_TCT_SM6150_COMMON
+        if (pdev->dev.of_node) {
+                if (of_alias_get_id(pdev->dev.of_node, "sdhc") == 2)
+                {
+		       slot_host = msm_host->mmc;
+		       sdcard_class_device_register();
+                }
+        }
+#endif
+/*[FEATURE]-ADD-END TCTNB.Yubin*/
+
 	if (sdhci_msm_is_bootdevice(&pdev->dev))
 		mmc_flush_detect_work(host->mmc);
 
@@ -5344,6 +5420,15 @@ static int sdhci_msm_remove(struct platform_device *pdev)
 		sdhci_msm_bus_cancel_work_and_set_vote(host, 0);
 		sdhci_msm_bus_unregister(msm_host);
 	}
+
+/*[FEATURE]-ADD-BEGIN TCTNB.Yubin, 11/07/2018, take slot can be see by app*/
+#ifdef CONFIG_TCT_SM6150_COMMON
+        if (pdev->dev.of_node) {
+                if (of_alias_get_id(pdev->dev.of_node, "sdhc") == 2){
+                        sdcard_class_device_unregister();}
+        }
+#endif
+/*[FEATURE]-ADD-END TCTNB.Yubin*/
 
 	sdhci_pltfm_free(pdev);
 

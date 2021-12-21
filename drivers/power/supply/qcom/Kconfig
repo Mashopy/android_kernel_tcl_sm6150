@@ -120,6 +120,19 @@ config SMB1390_CHARGE_PUMP_PSY
 	  SMB1390 is a div2 charge pump capable of delivering 6A charge current
 	  with very high efficiency.
 
+# [start] TCTNB.WJ
+config TCT_CHG_AUTOTEST
+	bool "Enable Autotest log for chg"
+	help
+	  Say Y here to enable the chg log soc/voltage/current for autotest.
+	  Say N to disable these logs for performance.
+
+config TCT_PD_PATCH
+	bool "Enable selfpatch for TCT PD solution"
+	help
+	  Say Y here to enable the PD patch due to HW issue.
+# [ended] TCTNB.WJ
+
 config SMB1398_CHARGER
 	tristate "SMB1398 power supply framework based driver"
 	depends on MFD_I2C_PMIC

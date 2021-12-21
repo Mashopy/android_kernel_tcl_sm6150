@@ -428,6 +428,21 @@ fw_get_filesystem_firmware(struct device *device, struct firmware_buf *buf)
 			break;
 		}
 
+		/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+		/* CONFIG_PXLW_IRIS3 */
+		if (!strcmp(buf->fw_id, "iris3.fw") && i == 1) {
+			snprintf(path, PATH_MAX, "%s/%s", "/oempersist/display", buf->fw_id); // MODIFIED by hongwei.tian, 2019-06-06,BUG-7808648
+			dev_err(device, "[Iris] Try to load: %s\n", path);
+		}
+		/* MODIFIED-BEGIN by ji.chen, 2019-08-01,BUG-8195210*/
+		if (!strcmp(buf->fw_id, "iris3_default.fw") && i == 1) {
+			snprintf(path, PATH_MAX, "%s/%s", "/vendor/firmware", "iris3.fw");
+			/* MODIFIED-END by ji.chen,BUG-8195210*/
+			dev_err(device, "[Iris] Try to load: %s\n", path);
+		}
+		/* end of iris3 */
+		/* MODIFIED-END by Haojun Chen,BUG-7765094*/
+
 		buf->size = 0;
 		rc = kernel_read_file_from_path(path, &buf->data, &size, msize,
 						id);

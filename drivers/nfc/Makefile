@@ -19,3 +19,5 @@ obj-$(CONFIG_NFC_S3FWRN5)	+= s3fwrn5/
 obj-$(CONFIG_NFC_ST95HF)	+= st95hf/
 obj-$(CONFIG_NFC_NQ)		+= nq-nci.o
 obj-$(CONFIG_NTAG_NQ)		+= nq-ntag.o
+#[NFC]ADD ST NFC by na.long on 2019/04/26, 7669988
+obj-$(CONFIG_NFC_ST21NFCD)  += st21nfcd/

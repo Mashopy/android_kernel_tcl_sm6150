@@ -198,3 +198,15 @@ config DRM_SDE_RSC
 	  avoids the display core power collapse. A client can also register
 	  for display core power collapse events on rsc.
 
+config PXLW_IRIS3
+       bool "Enable pxlw iris3"
+       default n
+
+config PXLW_IRIS5
+        bool "Enable pxlw iris5"
+        default n
+   
+config TCT_SMART_LCD_BACKLIGHT
+       bool "Enable smart lcd backlight"
+       default n
+

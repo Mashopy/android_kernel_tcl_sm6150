@@ -76,6 +76,9 @@ struct sdhci_pinctrl_data {
 	struct pinctrl          *pctrl;
 	struct pinctrl_state    *pins_active;
 	struct pinctrl_state    *pins_sleep;
+#ifdef CONFIG_TCT_SM6150_COMMON
+        struct pinctrl_state    *pins_onetime;
+#endif
 	struct pinctrl_state    *pins_drv_type_400KHz;
 	struct pinctrl_state    *pins_drv_type_50MHz;
 	struct pinctrl_state    *pins_drv_type_100MHz;

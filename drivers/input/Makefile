@@ -31,3 +31,9 @@ obj-$(CONFIG_INPUT_KEYRESET)	+= keyreset.o
 obj-$(CONFIG_INPUT_KEYCOMBO)	+= keycombo.o
 
 obj-$(CONFIG_RMI4_CORE)		+= rmi4/
+
+#focaltech fingerprint and see the t1_defconfig
+obj-$(CONFIG_FOCALTECH_FINGERPRINT) += focaltech/
+
+#goodix fingerprint kernel src
+obj-$(CONFIG_GOODIX_FINGERPRINT) += fingerprint/

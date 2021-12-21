@@ -125,8 +125,11 @@ static ssize_t ir_lirc_transmit_ir(struct file *file, const char __user *buf,
 		return -EINVAL;
 
 	count = n / sizeof(unsigned);
-	if (count > LIRCBUF_SIZE || count % 2 == 0)
-		return -EINVAL;
+
+/* MODIFIED-BEGIN by hongwei.tian, 2019-10-28,BUG-8456684*/
+/*	if (count > LIRCBUF_SIZE || count % 2 == 0)
+		return -EINVAL;*/
+		/* MODIFIED-END by hongwei.tian,BUG-8456684*/
 
 	txbuf = memdup_user(buf, n);
 	if (IS_ERR(txbuf))
@@ -144,6 +147,7 @@ static ssize_t ir_lirc_transmit_ir(struct file *file, const char __user *buf,
 	}
 
 	for (i = 0; i < count; i++) {
+		dev_dbg(&dev->dev, "@txbuf[%d] = %d \n", i , txbuf[i]); // MODIFIED by hongwei.tian, 2019-10-31,BUG-8315980
 		if (txbuf[i] > IR_MAX_DURATION / 1000 - duration || !txbuf[i]) {
 			ret = -EINVAL;
 			goto out;

@@ -230,7 +230,6 @@ struct msm_vidc_efuse_data {
 	u32 shift;
 	enum efuse_purpose purpose;
 };
-
 struct msm_vidc_capability_range {
 	u32 min;
 	u32 max;
@@ -240,7 +239,6 @@ struct msm_vidc_image_capability {
 	struct msm_vidc_capability_range width;
 	struct msm_vidc_capability_range height;
 };
-
 enum vpu_version {
 	VPU_VERSION_4 = 1,
 	VPU_VERSION_5,

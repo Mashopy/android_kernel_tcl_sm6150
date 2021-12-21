@@ -40,6 +40,7 @@ static int pwm_ir_set_duty_cycle(struct rc_dev *dev, u32 duty_cycle)
 	struct pwm_ir *pwm_ir = dev->priv;
 
 	pwm_ir->duty_cycle = duty_cycle;
+	dev_dbg(&dev->dev, "@duty_cycle = %d \n", duty_cycle); // MODIFIED by hongwei.tian, 2019-10-31,BUG-8315980
 
 	return 0;
 }
@@ -52,6 +53,7 @@ static int pwm_ir_set_carrier(struct rc_dev *dev, u32 carrier)
 		return -EINVAL;
 
 	pwm_ir->carrier = carrier;
+	dev_dbg(&dev->dev, "@carrier = %d \n", carrier); // MODIFIED by hongwei.tian, 2019-10-31,BUG-8315980
 
 	return 0;
 }
@@ -81,7 +83,13 @@ static int pwm_ir_tx(struct rc_dev *dev, unsigned int *txbuf,
 		edge = ktime_add_us(edge, txbuf[i]);
 		delta = ktime_us_delta(edge, ktime_get());
 		if (delta > 0)
-			usleep_range(delta, delta + 10);
+		/* MODIFIED-BEGIN by hongwei.tian, 2019-10-31,BUG-8315980*/
+		{
+			//usleep_range(delta, delta + 10);
+			udelay(delta);
+		}
+		/* MODIFIED-END by hongwei.tian,BUG-8315980*/
+
 	}
 
 	pwm_disable(pwm);

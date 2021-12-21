@@ -420,6 +420,9 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(cp_toggle_switcher),
 	POWER_SUPPLY_ATTR(cp_irq_status),
 	POWER_SUPPLY_ATTR(cp_ilim),
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	POWER_SUPPLY_ATTR(tcl_fixtemp),
+#endif
 	POWER_SUPPLY_ATTR(irq_status),
 	POWER_SUPPLY_ATTR(parallel_output_mode),
 	/* Local extensions of type int64_t */

@@ -30,6 +30,7 @@
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/spinlock.h>
+#include <linux/pm_wakeup.h> // MODIFIED by hongwei.tian, 2019-11-28,BUG-8609127
 
 struct gpio_button_data {
 	const struct gpio_keys_button *button;
@@ -59,6 +60,10 @@ struct gpio_keys_drvdata {
 	struct gpio_button_data data[0];
 };
 
+/* MODIFIED-BEGIN by hongwei.tian, 2019-11-28,BUG-8609127*/
+struct wakeup_source gpio_key_wake_src;
+#define WAKEBYTE_TIMEOUT_MSEC	(800)
+/* MODIFIED-END by hongwei.tian,BUG-8609127*/
 /*
  * SYSFS interface for enabling/disabling keys and switches:
  *
@@ -345,11 +350,41 @@ static DEVICE_ATTR(disabled_switches, S_IWUSR | S_IRUGO,
 		   gpio_keys_show_disabled_switches,
 		   gpio_keys_store_disabled_switches);
 
+/* MODIFIED-BEGIN by hongwei.tian, 2019-04-28,BUG-7674025*/
+static ssize_t gpio_keys_show_clamshell_status(struct device *dev,
+				     struct device_attribute *attr,
+				     char *buf)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
+	int state;
+	int i;
+
+	for (i = 0; i < ddata->pdata->nbuttons; i++) {
+		/* MODIFIED-BEGIN by hongwei.tian, 2019-12-14,BUG-8697455*/
+		struct gpio_button_data *bdata = &ddata->data[i];
+
+		if (bdata->button->code == 252)
+		{
+			state = (gpiod_get_value_cansleep(bdata->gpiod) ? 1 : 0) ^ bdata->button->active_low;
+			/* MODIFIED-END by hongwei.tian,BUG-8697455*/
+			return sprintf(buf, "%s\n", state ? "Close" : "Open");
+		}
+
+	}
+	return 0;
+
+}
+
+static DEVICE_ATTR(clamshell_status, S_IRUGO, gpio_keys_show_clamshell_status, NULL);
+
 static struct attribute *gpio_keys_attrs[] = {
 	&dev_attr_keys.attr,
 	&dev_attr_switches.attr,
 	&dev_attr_disabled_keys.attr,
 	&dev_attr_disabled_switches.attr,
+	&dev_attr_clamshell_status.attr,
+	/* MODIFIED-END by hongwei.tian,BUG-7674025*/
 	NULL,
 };
 
@@ -401,6 +436,7 @@ static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 		const struct gpio_keys_button *button = bdata->button;
 
 		pm_stay_awake(bdata->input->dev.parent);
+		__pm_wakeup_event(&gpio_key_wake_src, WAKEBYTE_TIMEOUT_MSEC); // MODIFIED by hongwei.tian, 2019-11-28,BUG-8609127
 		if (bdata->suspended  &&
 		    (button->type == 0 || button->type == EV_KEY)) {
 			/*
@@ -842,6 +878,7 @@ static int gpio_keys_probe(struct platform_device *pdev)
 	}
 
 	device_init_wakeup(dev, wakeup);
+	wakeup_source_init(&gpio_key_wake_src, "gpio_key"); // MODIFIED by hongwei.tian, 2019-11-28,BUG-8609127
 
 	return 0;
 }

@@ -1256,6 +1256,14 @@ config TOUCHSCREEN_ST
 
 source "drivers/input/touchscreen/st/Kconfig"
 
+config TOUCHSCREEN_ST_NEW
+	bool "STMicroelectronics Touchscreen Driver"
+	depends on I2C
+	help
+	  Say Y here if you have a STMicroelectronics Touchscreen.
+
+	  If unsure, say N.
+
 config TOUCHSCREEN_HIMAX_CHIPSET
 	bool "Himax touchpanel CHIPSET"
 	depends on I2C
@@ -1287,5 +1295,7 @@ config TOUCHSCREEN_SYNAPTICS_TCM
 	  If unsure, say N.
 
 source "drivers/input/touchscreen/synaptics_tcm/Kconfig"
+source "drivers/input/touchscreen/focaltech_touch/Kconfig"
+source "drivers/input/touchscreen/fts_521/Kconfig"
 
 endif

@@ -27,6 +27,11 @@
 #include <linux/wait.h>
 #include "usbpd.h"
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#include <linux/power_supply.h>
+#endif
+
+
 #define USB_PDPHY_MAX_DATA_OBJ_LEN	28
 #define USB_PDPHY_MSG_HDR_LEN		2
 
@@ -797,6 +802,13 @@ static int pdphy_probe(struct platform_device *pdev)
 	int ret;
 	unsigned int base;
 	struct usb_pdphy *pdphy;
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (!power_supply_get_by_name("usb")) {
+		pr_err("Could not get USB power_supply, deferring pdphy probe\n");
+		return -EPROBE_DEFER;
+	}
+#endif
 
 	pdphy = devm_kzalloc(&pdev->dev, sizeof(*pdphy), GFP_KERNEL);
 	if (!pdphy)

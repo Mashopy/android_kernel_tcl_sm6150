@@ -349,4 +349,22 @@ int sde_encoder_in_cont_splash(struct drm_encoder *enc);
  */
 int sde_encoder_get_ctlstart_timeout_state(struct drm_encoder *enc);
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+/**
+ * sde_encoder_rc_lock - lock the sde encoder resource control.
+ * @drm_enc:    Pointer to drm encoder structure
+ * @Return:     void.
+ */
+void sde_encoder_rc_lock(struct drm_encoder *drm_enc);
+
+/**
+ * sde_encoder_rc_unlock - unlock the sde encoder resource control.
+ * @drm_enc:    Pointer to drm encoder structure
+ * @Return:     void.
+ */
+void sde_encoder_rc_unlock(struct drm_encoder *drm_enc);
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
+
 #endif /* __SDE_ENCODER_H__ */

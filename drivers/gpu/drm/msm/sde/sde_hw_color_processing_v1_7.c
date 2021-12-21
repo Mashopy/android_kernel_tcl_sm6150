@@ -878,6 +878,11 @@ void sde_setup_dspp_gc_v1_7(struct sde_hw_dspp *ctx, void *cfg)
 		SDE_REG_WRITE(&ctx->hw, ctx->cap->sblk->gc.base, 0);
 		return;
 	}
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	DRM_INFO("Enable pgc feature\n");
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	payload = hw_cfg->payload;
 
 	/* Initialize index offsets */
@@ -894,6 +899,11 @@ void sde_setup_dspp_gc_v1_7(struct sde_hw_dspp *ctx, void *cfg)
 	c2_off = c1_off + (sizeof(u32) * 2);
 
 	for (i = 0; i < PGC_TBL_LEN; i++) {
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+		DRM_DEBUG_DRIVER("[%3d]=0x%08x,0x%08x,0x%08x\n", i, payload->c0[i], payload->c1[i], payload->c2[i]);
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 		SDE_REG_WRITE(&ctx->hw, c0_off, payload->c0[i]);
 		SDE_REG_WRITE(&ctx->hw, c1_off, payload->c1[i]);
 		SDE_REG_WRITE(&ctx->hw, c2_off, payload->c2[i]);

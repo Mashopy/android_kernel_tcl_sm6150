@@ -888,6 +888,14 @@ static void send_file_work(struct work_struct *data)
 			break;
 		}
 
+		/* Task: 8222642, vfs_read will return 0 if read out of the file range.
+		 * return -EINVAL in this case to avoid dead loop here.
+		 */
+		if (ret == 0) {
+			r = -EINVAL;
+			break;
+		}
+
 		xfer = ret + hdr_size;
 		dev->perf[dev->dbg_read_index].vfs_rtime =
 			ktime_to_us(ktime_sub(ktime_get(), start_time));

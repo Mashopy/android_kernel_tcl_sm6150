@@ -51,6 +51,9 @@ module_param(disable_restart_work, uint, 0644);
 static int enable_debug;
 module_param(enable_debug, int, 0644);
 
+// Defect: 8396521, store subsystem name
+char subsystem_panic[16];
+
 /* The maximum shutdown timeout is the product of MAX_LOOPS and DELAY_MS. */
 #define SHUTDOWN_ACK_MAX_LOOPS	100
 #define SHUTDOWN_ACK_DELAY_MS	100
@@ -1264,6 +1267,10 @@ int subsystem_restart_dev(struct subsys_device *dev)
 
 	pr_info("Restart sequence requested for %s, restart_level = %s.\n",
 		name, restart_levels[dev->restart_level]);
+
+	// Defect: 8396521, store subsystem name
+	memset(subsystem_panic, 0, sizeof(subsystem_panic));
+	memcpy(subsystem_panic, name, strlen(name));
 
 	if (disable_restart_work == DISABLE_SSR) {
 		pr_warn("subsys-restart: Ignoring restart request for %s\n",

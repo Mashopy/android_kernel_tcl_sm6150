@@ -748,7 +748,6 @@ static struct msm_vidc_efuse_data atoll_efuse_data[] = {
 static struct msm_vidc_ubwc_config trinket_ubwc_data[] = {
 	UBWC_CONFIG(0, 1, 0, 0, 0, 64, 0, 0),
 };
-
 static struct msm_vidc_image_capability default_heic_image_capability = {
 	{512, 8192}, {512, 8192}
 };
@@ -756,7 +755,6 @@ static struct msm_vidc_image_capability default_heic_image_capability = {
 static struct msm_vidc_image_capability default_hevc_image_capability = {
 	{512, 512}, {512, 512}
 };
-
 static struct msm_vidc_platform_data default_data = {
 	.codec_data = default_codec_data,
 	.codec_data_length =  ARRAY_SIZE(default_codec_data),
@@ -787,8 +785,8 @@ static struct msm_vidc_platform_data atoll_data = {
 	.csc_data.vpe_csc_custom_limit_coeff = vpe_csc_custom_limit_coeff,
 	.efuse_data = atoll_efuse_data,
 	.efuse_data_length = ARRAY_SIZE(atoll_efuse_data),
-	.heic_image_capability = &default_heic_image_capability,
-	.hevc_image_capability = &default_hevc_image_capability,
+	//.heic_image_capability = &default_heic_image_capability,
+	//.hevc_image_capability = &default_hevc_image_capability,
 	.sku_version = 0,
 	.vpu_ver = VPU_VERSION_4,
 };

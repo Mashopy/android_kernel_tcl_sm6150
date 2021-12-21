@@ -63,7 +63,7 @@ static void scm_disable_sdi(void);
  * There is no API from TZ to re-enable the registers.
  * So the SDI cannot be re-enabled when it already by-passed.
  */
-static int download_mode = 1;
+static int download_mode = 0;
 static bool force_warm_reboot;
 
 #ifdef CONFIG_QCOM_DLOAD_MODE
@@ -85,6 +85,12 @@ static void *kaslr_imem_addr;
 #endif
 static bool scm_dload_supported;
 
+// Defect: 8396521
+#ifdef CONFIG_MSM_SUBSYSTEM_RESTART
+extern char subsystem_panic[];
+static char* subsys_panic = subsystem_panic;
+#endif /* CONFIG_MSM_SUBSYSTEM_RESTART */
+
 static int dload_set(const char *val, const struct kernel_param *kp);
 /* interface for exporting attributes */
 struct reset_attribute {
@@ -101,7 +107,7 @@ struct reset_attribute {
 			__ATTR(_name, _mode, _show, _store)
 
 module_param_call(download_mode, dload_set, param_get_int,
-			&download_mode, 0644);
+			&download_mode, 0444);
 
 static int panic_prep_restart(struct notifier_block *this,
 			      unsigned long event, void *ptr)
@@ -344,6 +350,45 @@ static void msm_restart_prepare(const char *cmd)
 			__raw_writel(0x77665501, restart_reason);
 		}
 	}
+
+// Defect: 8396521
+#ifdef CONFIG_MSM_SUBSYSTEM_RESTART
+	if (in_panic != 0) {
+		pr_info("subsystem_%s_crash_leading_to_msm_restart.\n", subsystem_panic);
+		if (!memcmp(subsystem_panic, "modem", 5)) {
+			qpnp_pon_set_restart_reason(OEM_RESET_MODEM);
+			__raw_writel(0x6f656dc1, restart_reason);
+		} else if(!memcmp(subsystem_panic, "wcnss", 4)) {
+			qpnp_pon_set_restart_reason(OEM_RESET_WCNSS);
+			__raw_writel(0x6F656dc2, restart_reason);
+		} else if (!memcmp(subsystem_panic, "adsp", 4)) {
+			qpnp_pon_set_restart_reason(OEM_RESET_ADSP);
+			__raw_writel(0x6f656dc3, restart_reason);
+		} else if (!memcmp(subsystem_panic, "venus", 5)) {
+			qpnp_pon_set_restart_reason(OEM_RESET_VENUS);
+			__raw_writel(0x6f656dc4, restart_reason);
+		} else if (!memcmp(subsystem_panic, "slpi", 4)) {
+			qpnp_pon_set_restart_reason(OEM_RESET_SLPI);
+			__raw_writel(0x6f656dc5, restart_reason);
+		} else if(!memcmp(subsystem_panic, "gpu", 3)){
+			qpnp_pon_set_restart_reason(OEM_RESET_GPU);
+			__raw_writel(0x6f656dc6, restart_reason);
+		} else if(!memcmp(subsystem_panic, "cdsp", 4)){
+			qpnp_pon_set_restart_reason(OEM_RESET_CDSP);
+			__raw_writel(0x6f656dc7, restart_reason);
+		} else if(strstr(subsys_panic, "zap") != NULL) {
+			qpnp_pon_set_restart_reason(OEM_RESET_A512_ZAP);
+			__raw_writel(0x6F656dc8, restart_reason);
+		} else {
+			/* use oem specific code to identify panic */
+			qpnp_pon_set_restart_reason(OEM_RESET_KERNEL_PANIC);
+			__raw_writel(0x6f656dc0, restart_reason);
+		}
+		if (download_mode) {
+			set_dload_mode(1);
+		}
+	}
+#endif /* CONFIG_MSM_SUBSYSTEM_RESTART */
 
 	flush_cache_all();
 
@@ -667,6 +712,9 @@ skip_sysfs_create:
 
 	force_warm_reboot = of_property_read_bool(dev->of_node,
 						"qcom,force-warm-reboot");
+
+	// Defect: 8396521
+	qpnp_pon_set_restart_reason(OEM_RESET_CRASH_UNKNOWN);
 
 	return 0;
 

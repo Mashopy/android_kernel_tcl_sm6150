@@ -527,7 +527,12 @@ static enum alarmtimer_restart
 
 	/* timer callback runs in atomic context, cannot use voter */
 	pm_stay_awake(chip->dev);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	queue_work(private_chg_wq, &chip->scale_soc_work);
+#else
 	schedule_work(&chip->scale_soc_work);
+#endif
 
 	return ALARMTIMER_NORESTART;
 }

@@ -42,7 +42,13 @@
 
 #define DITHER_DEPTH_MAP_INDEX 9
 static u32 dither_depth_map[DITHER_DEPTH_MAP_INDEX] = {
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	0, 0, 0, 0, 0, 1, 2, 3, 2
+#else
 	0, 0, 0, 0, 0, 1, 2, 3, 3
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 };
 
 #define MERGE_3D_MODE 0x004

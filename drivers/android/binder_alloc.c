@@ -219,6 +219,13 @@ static int binder_update_page_range(struct binder_alloc *alloc, int allocate,
 
 	if (mm) {
 		down_read(&mm->mmap_sem);
+		/* MODIFIED-BEGIN by hongwei.tian, 2020-02-18,BUG-8875286*/
+		if (!mmget_still_valid(mm)) {
+			if (allocate == 0)
+				goto free_range;
+			goto err_no_vma;
+		}
+		/* MODIFIED-END by hongwei.tian,BUG-8875286*/
 		vma = alloc->vma;
 	}
 

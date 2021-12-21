@@ -18,6 +18,12 @@
 #include "sde_dbg.h"
 #include "sde_kms.h"
 #include "sde_hw_reg_dma_v1_color_proc.h"
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+#include "sde_encoder.h"
+#include "dsi_iris3_api.h"
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 
 #define SDE_FETCH_CONFIG_RESET_VALUE   0x00000087
 
@@ -797,6 +803,11 @@ static void sde_hw_sspp_setup_sharpening(struct sde_hw_pipe *ctx,
 	struct sde_hw_blk_reg_map *c;
 	u32 idx;
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	cfg = NULL;
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	if (_sspp_subblk_offset(ctx, SDE_SSPP_SCALER_QSEED2, &idx) || !cfg ||
 			!test_bit(SDE_SSPP_SCALER_QSEED2, &ctx->cap->features))
 		return;

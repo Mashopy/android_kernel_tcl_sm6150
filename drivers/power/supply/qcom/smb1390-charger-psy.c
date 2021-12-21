@@ -76,9 +76,15 @@
 #define TEMP_ALERT_LVL_SHIFT		5
 #define TEMP_BUFFER_OUTPUT_BIT		BIT(7)
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#define CFG_EN_SWITCHER			BIT(4)
+#endif
 #define CORE_FTRIM_LVL_REG		0x1033
 #define CFG_WIN_HI_MASK			GENMASK(3, 2)
 #define WIN_OV_LVL_1000MV		0x08
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#define WIN_OV_LVL_1200MV		0x0C
+#endif
 
 #define CORE_FTRIM_MISC_REG		0x1034
 #define TR_WIN_1P5X_BIT			BIT(0)
@@ -109,6 +115,10 @@
 #define MAIN_DISABLE_VOTER	"MAIN_DISABLE_VOTER"
 #define TAPER_MAIN_ICL_LIMIT_VOTER	"TAPER_MAIN_ICL_LIMIT_VOTER"
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#define VOL_LEVEL_VOTER 		"VOL_LEVEL_VOTER"
+#endif
+
 #define CP_MASTER		0
 #define CP_SLAVE		1
 #define THERMAL_SUSPEND_DECIDEGC	1400
@@ -118,6 +128,15 @@
 #define DEFAULT_TAPER_DELTA_UA		100000
 #define CC_MODE_TAPER_MAIN_ICL_UA	500000
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#define smb1390_dbg(chip, reason, fmt, ...)				\
+	do {								\
+		if (chip->debug_mask & (reason))			\
+			pr_err_ratelimited(fmt, ##__VA_ARGS__);				\
+		else							\
+			pr_debug(fmt, ##__VA_ARGS__);				\
+	} while (0)
+#else
 #define smb1390_dbg(chip, reason, fmt, ...)				\
 	do {								\
 		if (chip->debug_mask & (reason))			\
@@ -127,6 +146,7 @@
 			pr_debug("SMB1390: %s: " fmt, __func__,		\
 				##__VA_ARGS__);				\
 	} while (0)
+#endif
 
 enum {
 	SWITCHER_OFF_WINDOW_IRQ = 0,
@@ -236,6 +256,9 @@ struct smb_cfg {
 static const struct smb_cfg smb1390_dual[] = {
 	{0x1031, 0xff, 0x7A},
 	{0x1032, 0xff, 0x07},
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	{0x1033, 0xff, 0x7C},
+#endif
 	{0x1035, 0xff, 0x63},
 	{0x1036, 0xff, 0x80},
 	{0x103A, 0xff, 0x44},
@@ -476,6 +499,28 @@ static int smb1390_get_cp_en_status(struct smb1390 *chip, int id, bool *enable)
 	return rc;
 }
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static int smb1390_set_ilim(struct smb1390 *chip, int ilim_ua)
+{
+	int rc;
+	static int last_ilim_ua = -1;
+
+	if (last_ilim_ua == ilim_ua) {
+		pr_debug("skip same ilim\n", ilim_ua);
+		return 0;
+	}
+
+	rc = smb1390_masked_write(chip, CORE_FTRIM_ILIM_REG,
+			CFG_ILIM_MASK, ilim_ua);
+	if (rc < 0) {
+		pr_err("Failed to write ILIM Register, rc=%d\n", rc);
+	} else {
+		last_ilim_ua = ilim_ua;
+	}
+
+	return rc;
+}
+#else
 static int smb1390_set_ilim(struct smb1390 *chip, int ilim_ua)
 {
 	int rc;
@@ -487,6 +532,7 @@ static int smb1390_set_ilim(struct smb1390 *chip, int ilim_ua)
 
 	return rc;
 }
+#endif
 
 static irqreturn_t default_irq_handler(int irq, void *data)
 {
@@ -535,8 +581,10 @@ static const struct smb_irq smb_irqs[] = {
 	},
 	[IREV_IRQ] = {
 		.name		= "irev-fault",
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 		.handler	= default_irq_handler,
 		.wake		= true,
+#endif
 	},
 	[VPH_OV_HARD_IRQ] = {
 		.name		= "vph-ov-hard",
@@ -550,8 +598,10 @@ static const struct smb_irq smb_irqs[] = {
 	},
 	[ILIM_IRQ] = {
 		.name		= "ilim",
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 		.handler	= default_irq_handler,
 		.wake		= true,
+#endif
 	},
 	[TEMP_ALARM_IRQ] = {
 		.name		= "temp-alarm",
@@ -795,6 +845,35 @@ out:
 	return true;
 }
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#define MIN_ALLOWED_FV_MV (3600000)
+#define MAX_DELTA_OV_MV (20000)
+static int smb1390_is_batt_vol_valid(struct smb1390 *chip)
+{
+	int rc;
+	int max_fv = 0;
+	union power_supply_propval pval = {0, };
+	if (!chip->batt_psy)
+		goto out;
+	max_fv = get_effective_result(chip->fv_votable);
+	if (max_fv < MIN_ALLOWED_FV_MV)
+		goto out;
+	rc = power_supply_get_property(chip->batt_psy,
+			POWER_SUPPLY_PROP_VOLTAGE_NOW, &pval);
+	if (rc < 0) {
+		pr_err("Couldn't get voltage rc=%d\n", rc);
+		goto out;
+	}
+	if (pval.intval >= (max_fv + MAX_DELTA_OV_MV)) {
+		pr_err("VOL(%d) > max_fv(%d) + delta(%d), inhibit\n", 
+					pval.intval, max_fv, MAX_DELTA_OV_MV);
+		return false;
+	}
+out:
+	return true;
+}
+#endif
+
 static int smb1390_triple_init_hw(struct smb1390 *chip)
 {
 	int i, rc = 0;
@@ -952,7 +1031,11 @@ static int smb1390_ilim_vote_cb(struct votable *votable, void *data,
 	ilim_uA = min(ilim_uA, (is_cps_available(chip) ?
 				MAX_ILIM_DUAL_CP_UA : MAX_ILIM_UA));
 	/* ILIM less than min_ilim_ua, disable charging */
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (ilim_uA <= chip->min_ilim_ua) {
+#else
 	if (ilim_uA < chip->min_ilim_ua) {
+#endif
 		smb1390_dbg(chip, PR_INFO, "ILIM %duA is too low to allow charging\n",
 			ilim_uA);
 		vote(chip->disable_votable, ILIM_VOTER, true, 0);
@@ -1029,7 +1112,12 @@ static int smb1390_notifier_cb(struct notifier_block *nb,
 		if (!chip->status_change_running) {
 			chip->status_change_running = true;
 			pm_stay_awake(chip->dev);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+			queue_work(private_chg_wq, &chip->status_change_work);
+#else
 			schedule_work(&chip->status_change_work);
+#endif
 		}
 		spin_unlock_irqrestore(&chip->status_change_lock, flags);
 
@@ -1107,8 +1195,18 @@ static void smb1390_status_change_work(struct work_struct *work)
 	 * valid due to the battery discharging later, remove
 	 * vote from SOC_LEVEL_VOTER.
 	 */
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	vote(chip->disable_votable, SOC_LEVEL_VOTER,
+		smb1390_is_batt_soc_valid(chip) ? false : true, 0);
+#else
 	if (smb1390_is_batt_soc_valid(chip))
 		vote(chip->disable_votable, SOC_LEVEL_VOTER, false, 0);
+#endif
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	vote(chip->disable_votable, VOL_LEVEL_VOTER,
+			smb1390_is_batt_vol_valid(chip) ? false : true, 0);
+#endif
 
 	rc = power_supply_get_property(chip->usb_psy,
 			POWER_SUPPLY_PROP_SMB_EN_MODE, &pval);
@@ -1133,12 +1231,15 @@ static void smb1390_status_change_work(struct work_struct *work)
 
 		/* Check for SOC threshold only once before enabling CP */
 		vote(chip->disable_votable, SRC_VOTER, false, 0);
+
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 		if (!chip->batt_soc_validated) {
 			vote(chip->disable_votable, SOC_LEVEL_VOTER,
 				smb1390_is_batt_soc_valid(chip) ?
 				false : true, 0);
 			chip->batt_soc_validated = true;
 		}
+#endif
 
 		if (pval.intval == POWER_SUPPLY_CP_WIRELESS) {
 			vote(chip->ilim_votable, ICL_VOTER, false, 0);
@@ -1411,10 +1512,19 @@ static int smb1390_get_prop(struct power_supply *psy,
 			!get_effective_result(chip->disable_votable);
 		break;
 	case POWER_SUPPLY_PROP_CP_SWITCHER_EN:
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		rc = smb1390_get_cp_en_status(chip, SWITCHER_EN,
+					&enable);
+		if (!rc)
+			val->intval = enable;
+		else
+			val->intval = 0;
+#else
 		rc = smb1390_get_cp_en_status(chip, SWITCHER_EN,
 					      &enable);
 		if (!rc)
 			val->intval = enable;
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CP_DIE_TEMP:
 		/*
@@ -1458,6 +1568,10 @@ static int smb1390_get_prop(struct power_supply *psy,
 		rc = smb1390_read(chip, CORE_INT_RT_STS_REG, &status);
 		if (!rc)
 			val->intval |= status;
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		val->intval = 0;
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CP_ILIM:
 		rc = smb1390_get_cp_ilim(chip, val);
@@ -1485,6 +1599,11 @@ static int smb1390_get_prop(struct power_supply *psy,
 			prop);
 		rc = -EINVAL;
 	}
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (rc < 0)
+		rc = -ENODATA;
+#endif
 
 	return rc;
 }
@@ -1687,8 +1806,13 @@ static int smb1390_init_hw(struct smb1390 *chip)
 	 *  - Configure window (Vin - 2Vout) OV level to 1000mV
 	 *  - Configure VOUT tracking value to 1.0
 	 */
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	rc = smb1390_masked_write(chip, CORE_FTRIM_LVL_REG,
+			CFG_WIN_HI_MASK, WIN_OV_LVL_1200MV);
+#else
 	rc = smb1390_masked_write(chip, CORE_FTRIM_LVL_REG,
 			CFG_WIN_HI_MASK, WIN_OV_LVL_1000MV);
+#endif
 	if (rc < 0)
 		return rc;
 
@@ -1718,6 +1842,15 @@ static int smb1390_init_hw(struct smb1390 *chip)
 		pr_err("Failed to write CORE_FTRIM_CTRL_REG rc=%d\n", rc);
 		return rc;
 	}
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	rc = smb1390_masked_write(chip, CORE_FTRIM_CTRL_REG,
+			CFG_EN_SWITCHER, CFG_EN_SWITCHER);
+	if (rc < 0) {
+		pr_err("Failed to write CFG_EN_SWITCHER rc=%d\n", rc);
+		return rc;
+	}
+#endif
 
 	/* Configure IREV threshold to 200mA */
 	rc = smb1390_masked_write(chip, CORE_FTRIM_MISC_REG, TR_IREV_BIT, 0);
@@ -2067,6 +2200,13 @@ static int smb1390_probe(struct platform_device *pdev)
 {
 	struct smb1390 *chip;
 	int rc;
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (!power_supply_get_by_name("usb")) {
+		pr_err("Could not get USB power_supply, deferring smb1390 probe\n");
+		return -EPROBE_DEFER;
+	}
+#endif
 
 	chip = devm_kzalloc(&pdev->dev, sizeof(*chip), GFP_KERNEL);
 	if (!chip)

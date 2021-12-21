@@ -105,6 +105,9 @@ struct pl_data {
 	bool			cp_disabled;
 	int			taper_entry_fv;
 	int			main_fcc_max;
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	bool		last_input_present;
+#endif
 	u32			float_voltage_uv;
 	enum power_supply_type	charger_type;
 	/* debugfs directory */
@@ -126,6 +129,15 @@ enum {
 static int debug_mask;
 module_param_named(debug_mask, debug_mask, int, 0600);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#define pl_dbg(chip, reason, fmt, ...)				\
+	do {								\
+		if (debug_mask & (reason))				\
+			pr_err_ratelimited(fmt, ##__VA_ARGS__);	\
+		else							\
+			pr_debug(fmt, ##__VA_ARGS__);		\
+	} while (0)
+#else
 #define pl_dbg(chip, reason, fmt, ...)				\
 	do {								\
 		if (debug_mask & (reason))				\
@@ -133,6 +145,7 @@ module_param_named(debug_mask, debug_mask, int, 0600);
 		else							\
 			pr_debug(fmt, ##__VA_ARGS__);		\
 	} while (0)
+#endif
 
 #define IS_USBIN(mode)	((mode == POWER_SUPPLY_PL_USBIN_USBIN) \
 			|| (mode == POWER_SUPPLY_PL_USBIN_USBIN_EXT))
@@ -248,9 +261,11 @@ static void cp_configure_ilim(struct pl_data *chip, const char *voter, int ilim)
 	if (!is_cp_available(chip))
 		return;
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	if (cp_get_parallel_mode(chip, PARALLEL_OUTPUT_MODE)
 					== POWER_SUPPLY_PL_OUTPUT_VPH)
 		return;
+#endif
 
 	target_icl = get_hvdcp3_icl_limit(chip);
 	ilim = (target_icl > 0) ? min(ilim, target_icl) : ilim;
@@ -917,6 +932,59 @@ static int pl_fcc_main_vote_callback(struct votable *votable, void *data,
 			  &pval);
 }
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static int pl_fcc_vote_callback(struct votable *votable, void *data,
+			int total_fcc_ua, const char *client)
+{
+	struct pl_data *chip = data;
+	int master_fcc_ua = total_fcc_ua, slave_fcc_ua = 0;
+	union power_supply_propval pval = {0, };
+
+	if (total_fcc_ua < 0)
+		return 0;
+
+	if (!chip->main_psy)
+		return 0;
+
+	if (!chip->cp_disable_votable)
+		chip->cp_disable_votable = find_votable("CP_DISABLE");
+
+	if (chip->cp_disable_votable) {
+		if (cp_get_parallel_mode(chip, PARALLEL_OUTPUT_MODE)
+					== POWER_SUPPLY_PL_OUTPUT_VPH) {
+			power_supply_get_property(chip->cp_master_psy,
+					POWER_SUPPLY_PROP_MIN_ICL, &pval);
+			/*
+			 * With VPH output configuration ILIM is configured
+			 * independent of battery FCC, disable CP here if FCC/2
+			 * falls below MIN_ICL supported by CP.
+			 */
+			if (total_fcc_ua <= (pval.intval << 1))
+				vote(chip->cp_disable_votable, FCC_VOTER,
+						true, 0);
+			else
+				vote(chip->cp_disable_votable, FCC_VOTER,
+						false, 0);
+		}
+	}
+
+	if (chip->pl_mode != POWER_SUPPLY_PL_NONE) {
+		get_fcc_split(chip, total_fcc_ua, &master_fcc_ua,
+				&slave_fcc_ua);
+
+		if (slave_fcc_ua > MINIMUM_PARALLEL_FCC_UA) {
+			vote(chip->pl_disable_votable, PL_FCC_LOW_VOTER,
+							false, 0);
+		} else {
+			vote(chip->pl_disable_votable, PL_FCC_LOW_VOTER,
+							true, 0);
+		}
+	}
+
+	rerun_election(chip->pl_disable_votable);
+	return 0;
+}
+#else
 static int pl_fcc_vote_callback(struct votable *votable, void *data,
 			int total_fcc_ua, const char *client)
 {
@@ -995,12 +1063,14 @@ static int pl_fcc_vote_callback(struct votable *votable, void *data,
 	}
 
 	rerun_election(chip->pl_disable_votable);
+
 	/* When FCC changes, trigger psy changed event for CC mode */
 	if (chip->cp_master_psy)
 		power_supply_changed(chip->cp_master_psy);
 
 	return 0;
 }
+#endif
 
 static void fcc_stepper_work(struct work_struct *work)
 {
@@ -1208,7 +1278,11 @@ static int pl_fv_vote_callback(struct votable *votable, void *data,
 		return rc;
 	}
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (chip->pl_psy && chip->pl_mode != POWER_SUPPLY_PL_NONE) {
+#else
 	if (chip->pl_mode != POWER_SUPPLY_PL_NONE) {
+#endif
 		pval.intval += PARALLEL_FLOAT_VOLTAGE_DELTA_UV;
 		rc = power_supply_set_property(chip->pl_psy,
 				POWER_SUPPLY_PROP_VOLTAGE_MAX, &pval);
@@ -1281,8 +1355,13 @@ static int usb_icl_vote_callback(struct votable *votable, void *data,
 	if (icl_ua <= 1400000)
 		vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
 	else
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		queue_delayed_work(private_chg_wq, &chip->status_change_work, 
+						msecs_to_jiffies(PL_DELAY_MS));
+#else
 		schedule_delayed_work(&chip->status_change_work,
 						msecs_to_jiffies(PL_DELAY_MS));
+#endif
 
 	/* rerun AICL */
 	/* get the settled current */
@@ -1341,7 +1420,11 @@ static int pl_disable_vote_callback(struct votable *votable,
 	struct pl_data *chip = data;
 	union power_supply_propval pval = {0, };
 	int master_fcc_ua = 0, total_fcc_ua = 0, slave_fcc_ua = 0;
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	int rc = 0;
+#else
 	int rc = 0, cp_ilim;
+#endif
 	bool disable = false;
 
 	if (!is_main_available(chip))
@@ -1383,7 +1466,12 @@ static int pl_disable_vote_callback(struct votable *votable,
 
 	total_fcc_ua = get_effective_result_locked(chip->fcc_votable);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (chip->pl_psy && chip->pl_mode != POWER_SUPPLY_PL_NONE 
+		&& !pl_disable) {
+#else
 	if (chip->pl_mode != POWER_SUPPLY_PL_NONE && !pl_disable) {
+#endif
 		rc = validate_parallel_icl(chip, &disable);
 		if (rc < 0)
 			return rc;
@@ -1521,10 +1609,14 @@ static int pl_disable_vote_callback(struct votable *votable,
 			/* main psy gets all share */
 			vote(chip->fcc_main_votable, MAIN_FCC_VOTER, true,
 								total_fcc_ua);
+#if defined(CONFIG_TCT_SM6150_COMMON)
+			cp_configure_ilim(chip, FCC_VOTER, (total_fcc_ua >> 1));
+#else
 			cp_ilim = total_fcc_ua - get_effective_result_locked(
 							chip->fcc_main_votable);
 			if (cp_ilim > 0)
 				cp_configure_ilim(chip, FCC_VOTER, cp_ilim / 2);
+#endif
 
 			/* reset parallel FCC */
 			chip->slave_fcc_ua = 0;
@@ -1550,8 +1642,10 @@ static int pl_disable_vote_callback(struct votable *votable,
 		chip->pl_disable = (bool)pl_disable;
 	}
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	pl_dbg(chip, PR_PARALLEL, "parallel charging %s\n",
 		   pl_disable ? "disabled" : "enabled");
+#endif
 
 	return 0;
 }
@@ -1580,6 +1674,7 @@ static int pl_awake_vote_callback(struct votable *votable,
 	return 0;
 }
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 static bool is_parallel_available(struct pl_data *chip)
 {
 	union power_supply_propval pval = {0, };
@@ -1644,7 +1739,9 @@ static bool is_parallel_available(struct pl_data *chip)
 
 	return true;
 }
+#endif
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 static void handle_main_charge_type(struct pl_data *chip)
 {
 	union power_supply_propval pval = {0, };
@@ -1699,6 +1796,7 @@ static void handle_main_charge_type(struct pl_data *chip)
 	/* remember the new state only if it isn't any of the above */
 	chip->charge_type = pval.intval;
 }
+#endif
 
 #define MIN_ICL_CHANGE_DELTA_UA		300000
 static void handle_settled_icl_change(struct pl_data *chip)
@@ -1711,7 +1809,11 @@ static void handle_settled_icl_change(struct pl_data *chip)
 	int total_current_ua;
 	bool disable = false;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	total_current_ua = get_effective_result(chip->usb_icl_votable);
+#else
 	total_current_ua = get_effective_result_locked(chip->usb_icl_votable);
+#endif
 
 	/*
 	 * call aicl split only when USBIN_USBIN and enabled
@@ -1773,6 +1875,7 @@ static void handle_settled_icl_change(struct pl_data *chip)
 	}
 }
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 static void handle_parallel_in_taper(struct pl_data *chip)
 {
 	union power_supply_propval pval = {0, };
@@ -1801,7 +1904,9 @@ static void handle_parallel_in_taper(struct pl_data *chip)
 		return;
 	}
 }
+#endif
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 static void handle_usb_change(struct pl_data *chip)
 {
 	int rc;
@@ -1839,11 +1944,63 @@ static void handle_usb_change(struct pl_data *chip)
 			chip->charger_type = pval.intval;
 	}
 }
+#endif
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static bool is_input_present(struct pl_data *chip)
+{
+	int rc = 0, input_present = 0;
+	union power_supply_propval pval = {0, };
+
+	if (!chip->usb_psy)
+		chip->usb_psy = power_supply_get_by_name("usb");
+	if (chip->usb_psy) {
+		rc = power_supply_get_property(chip->usb_psy,
+				POWER_SUPPLY_PROP_PRESENT, &pval);
+		if (rc < 0)
+			pr_err("Couldn't read USB Present status, rc=%d\n", rc);
+		else
+			input_present |= pval.intval;
+	}
+
+	if (!chip->dc_psy)
+		chip->dc_psy = power_supply_get_by_name("dc");
+	if (chip->dc_psy) {
+		rc = power_supply_get_property(chip->dc_psy,
+				POWER_SUPPLY_PROP_PRESENT, &pval);
+		if (rc < 0)
+			pr_err("Couldn't read DC Present status, rc=%d\n", rc);
+		else
+			input_present |= pval.intval;
+	}
+
+	if (input_present)
+		return true;
+
+	return false;
+}
+#endif
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static void pl_status_change_work(struct work_struct *work)
+#else
 static void status_change_work(struct work_struct *work)
+#endif
 {
 	struct pl_data *chip = container_of(work,
 			struct pl_data, status_change_work.work);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	bool input_present = false;
+#endif
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (!is_batt_available(chip)) {
+		pl_dbg(chip, PR_PARALLEL, "skip for batt_psy is NULL\n");
+		__pm_relax(chip->pl_ws);
+		return;
+	}
+#endif
 
 	if (!chip->main_psy && is_main_available(chip)) {
 		/*
@@ -1856,18 +2013,55 @@ static void status_change_work(struct work_struct *work)
 		rerun_election(chip->fv_votable);
 	}
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (!chip->main_psy) {
+		pl_dbg(chip, PR_PARALLEL, "skip for main_psy is NULL\n");
+		__pm_relax(chip->pl_ws);
+		return;
+	}
+#else
 	if (!chip->main_psy)
 		return;
+#endif
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	if (!is_batt_available(chip))
 		return;
+#endif
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	input_present = is_input_present(chip);
+	if (!input_present && !chip->last_input_present) {
+		pl_dbg(chip, PR_PARALLEL, "skip for input_present=%d\n", 
+				input_present);
+		__pm_relax(chip->pl_ws);
+		return;
+	}
+	chip->last_input_present = input_present;
+#endif
+
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	is_parallel_available(chip);
+#endif
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	handle_usb_change(chip);
+#endif
+
+
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	handle_main_charge_type(chip);
+#endif
+
 	handle_settled_icl_change(chip);
+
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	handle_parallel_in_taper(chip);
+#endif
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	__pm_relax(chip->pl_ws);
+#endif
 }
 
 static int pl_notifier_call(struct notifier_block *nb,
@@ -1879,10 +2073,25 @@ static int pl_notifier_call(struct notifier_block *nb,
 	if (ev != PSY_EVENT_PROP_CHANGED)
 		return NOTIFY_OK;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (delayed_work_pending(&chip->status_change_work)) {
+		pr_debug("pl_status_change_work pending now, skip\n");
+		return NOTIFY_OK;
+	}
+#endif
+
 	if ((strcmp(psy->desc->name, "parallel") == 0)
 	    || (strcmp(psy->desc->name, "battery") == 0)
 	    || (strcmp(psy->desc->name, "main") == 0))
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	{
+		__pm_stay_awake(chip->pl_ws);
+		queue_delayed_work(private_chg_wq,
+				&chip->status_change_work, 0);
+	}
+#else
 		schedule_delayed_work(&chip->status_change_work, 0);
+#endif
 
 	return NOTIFY_OK;
 }
@@ -1903,7 +2112,12 @@ static int pl_register_notifier(struct pl_data *chip)
 
 static int pl_determine_initial_status(struct pl_data *chip)
 {
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	__pm_stay_awake(chip->pl_ws);
+	pl_status_change_work(&chip->status_change_work.work);
+#else
 	status_change_work(&chip->status_change_work.work);
+#endif
 	return 0;
 }
 
@@ -1948,7 +2162,11 @@ int qcom_batt_init(struct charger_param *chg_param)
 	if (!chip->pl_ws)
 		goto cleanup;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	INIT_DELAYED_WORK(&chip->status_change_work, pl_status_change_work);
+#else
 	INIT_DELAYED_WORK(&chip->status_change_work, status_change_work);
+#endif
 	INIT_WORK(&chip->pl_taper_work, pl_taper_work);
 	INIT_WORK(&chip->pl_disable_forever_work, pl_disable_forever_work);
 	INIT_DELAYED_WORK(&chip->fcc_stepper_work, fcc_stepper_work);
@@ -1997,6 +2215,11 @@ int qcom_batt_init(struct charger_param *chg_param)
 		chip->pl_disable_votable = NULL;
 		goto destroy_votable;
 	}
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	chip->pl_psy = NULL;
+#endif
+
 	vote(chip->pl_disable_votable, CHG_STATE_VOTER, true, 0);
 	vote(chip->pl_disable_votable, TAPER_END_VOTER, false, 0);
 	vote(chip->pl_disable_votable, PARALLEL_PSY_VOTER, true, 0);

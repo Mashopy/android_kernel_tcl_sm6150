@@ -1052,17 +1052,30 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_tear_scanline);
  *
  * Return: 0 on success or a negative error code on failure.
  */
+
+extern bool hbm_mode;
+extern u16 g_brightness;
+
 int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					u16 brightness)
 {
-	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
+	u8 payload[2] = {brightness >> 8, brightness & 0xff};
 	ssize_t err;
 
-	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				 payload, sizeof(payload));
-	if (err < 0)
-		return err;
-
+	if (hbm_mode == true) {
+		pr_info("%s: in hbm");
+		payload[0] = 0x0f;
+		payload[1] = 0xff;
+		err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+			 payload, sizeof(payload));
+		if (err < 0)
+			return err;
+	} else {
+		err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+					 payload, sizeof(payload));
+		if (err < 0)
+			return err;
+	}
 	return 0;
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_set_display_brightness);
@@ -1092,6 +1105,28 @@ int mipi_dsi_dcs_get_display_brightness(struct mipi_dsi_device *dsi,
 	return 0;
 }
 EXPORT_SYMBOL(mipi_dsi_dcs_get_display_brightness);
+
+int mipi_dsi_dcs_set_fod(struct mipi_dsi_device *dsi, bool enable)
+{
+	u8 payload = 0;
+	ssize_t err;
+
+	if (enable == true) {
+		pr_info("%s: enable fod\n");
+		payload = 0x03;
+		err = mipi_dsi_dcs_write(dsi, 0x83, &payload, 1);
+		if (err < 0)
+			return err;
+	} else {
+		pr_info("%s: enable fod\n");
+		payload = 0x00;
+		err = mipi_dsi_dcs_write(dsi, 0x83, &payload, 1);
+		if (err < 0)
+			return err;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(mipi_dsi_dcs_set_fod);
 
 static int mipi_dsi_drv_probe(struct device *dev)
 {

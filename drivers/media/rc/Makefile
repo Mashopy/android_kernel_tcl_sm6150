@@ -46,3 +46,5 @@ obj-$(CONFIG_IR_SIR) += sir_ir.o
 obj-$(CONFIG_IR_MTK) += mtk-cir.o
 obj-$(CONFIG_IR_ZX) += zx-irdec.o
 obj-$(CONFIG_IR_MSM_GENI) += msm-geni-ir.o
+obj-$(CONFIG_PWM_KOOKONG) +=kookong_ir_nochip.o
+

@@ -160,7 +160,21 @@ static int32_t cam_actuator_i2c_modes_util(
 {
 	int32_t rc = 0;
 	uint32_t i, size;
+	int32_t ch_addr,ch_data;
 
+// add for actuator dw9714a
+	ch_addr = i2c_list->i2c_settings.reg_setting->reg_addr;
+	ch_data = i2c_list->i2c_settings.reg_setting->reg_data;
+	if(ch_addr == 0xFF){
+		CAM_ERR(CAM_ACTUATOR,"The actuator ADDR and DATA chang");
+		ch_addr = ch_data & 0xFF00;
+		ch_addr = ch_addr>>8;
+		i2c_list->i2c_settings.reg_setting->reg_addr = ch_addr;
+		ch_data = ch_data & 0x00FF;
+		i2c_list->i2c_settings.reg_setting->reg_data = ch_data;
+		CAM_ERR(CAM_ACTUATOR,"the i2c_addr = 0x%x,i2c_data= 0x%x",
+			i2c_list->i2c_settings.reg_setting->reg_addr,i2c_list->i2c_settings.reg_setting->reg_data);
+	}
 	if (i2c_list->op_code == CAM_SENSOR_I2C_WRITE_RANDOM) {
 		rc = camera_io_dev_write(io_master_info,
 			&(i2c_list->i2c_settings));

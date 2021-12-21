@@ -5749,12 +5749,10 @@ int msm_vidc_check_session_supported(struct msm_vidc_inst *inst)
 			output_width, output_height);
 		rc = -ENOTSUPP;
 	}
-
 	if (is_image_session(inst)) {
 		rc = msm_vidc_check_image_session_capabilities(inst);
 		return rc;
 	}
-
 	output_height = ALIGN(inst->prop.height[CAPTURE_PORT], 16);
 	output_width = ALIGN(inst->prop.width[CAPTURE_PORT], 16);
 

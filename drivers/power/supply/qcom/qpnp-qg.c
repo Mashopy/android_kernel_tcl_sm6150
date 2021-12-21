@@ -72,6 +72,32 @@ static bool is_battery_present(struct qpnp_qg *chip)
 	return !!(reg & BATTERY_PRESENT_BIT);
 }
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#if defined(CONFIG_TCT_GCF) || defined(CONFIG_TCT_IEEE1725)
+#define VALID_BATT_ID_82K_LOW (69700)
+#define VALID_BATT_ID_82K_HIGH (94300)
+
+#define VALID_BATT_ID_18K_LOW (15300)
+#define VALID_BATT_ID_18K_HIGH (20700)
+static bool is_debug_batt_id(struct qpnp_qg *chip)
+{
+	if (is_between(VALID_BATT_ID_82K_LOW, VALID_BATT_ID_82K_HIGH,
+				chip->batt_id_ohm))
+		return false;
+
+	if (is_between(VALID_BATT_ID_18K_LOW, VALID_BATT_ID_18K_HIGH,
+				chip->batt_id_ohm))
+		return false;
+
+	return true;
+}
+#else
+static bool is_debug_batt_id(struct qpnp_qg *chip)
+{
+	return false;
+}
+#endif
+#else
 #define DEBUG_BATT_ID_LOW	6000
 #define DEBUG_BATT_ID_HIGH	8500
 static bool is_debug_batt_id(struct qpnp_qg *chip)
@@ -82,6 +108,7 @@ static bool is_debug_batt_id(struct qpnp_qg *chip)
 
 	return false;
 }
+#endif
 
 static int qg_read_ocv(struct qpnp_qg *chip, u32 *ocv_uv, u32 *ocv_raw, u8 type)
 {
@@ -574,6 +601,7 @@ static int qg_process_rt_fifo(struct qpnp_qg *chip)
 	return rc;
 }
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 #define MIN_FIFO_FULL_TIME_MS			12000
 static int process_rt_fifo_data(struct qpnp_qg *chip, bool update_smb)
 {
@@ -640,6 +668,7 @@ done:
 	qg_master_hold(chip, false);
 	return rc;
 }
+#endif
 
 #define VBAT_LOW_HYST_UV		50000 /* 50mV */
 static int qg_vbat_low_wa(struct qpnp_qg *chip)
@@ -773,6 +802,12 @@ static void qg_retrieve_esr_params(struct qpnp_qg *chip)
 
 	rc = qg_sdam_read(SDAM_ESR_CHARGE_DELTA, &data);
 	if (!rc && data) {
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		if (abs((int)data) > 10) {
+			pr_err("abnormal chg esr: 0x%x\n", data);
+			data = 0;
+		}
+#endif
 		chip->kdata.param[QG_ESR_CHARGE_DELTA].data = data;
 		chip->kdata.param[QG_ESR_CHARGE_DELTA].valid = true;
 		qg_dbg(chip, QG_DEBUG_ESR,
@@ -783,6 +818,12 @@ static void qg_retrieve_esr_params(struct qpnp_qg *chip)
 
 	rc = qg_sdam_read(SDAM_ESR_DISCHARGE_DELTA, &data);
 	if (!rc && data) {
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		if (abs((int)data) > 10) {
+			pr_err("abnormal dischg esr: 0x%x\n", data);
+			data = 0;
+		}
+#endif
 		chip->kdata.param[QG_ESR_DISCHARGE_DELTA].data = data;
 		chip->kdata.param[QG_ESR_DISCHARGE_DELTA].valid = true;
 		qg_dbg(chip, QG_DEBUG_ESR,
@@ -820,16 +861,34 @@ static void qg_store_esr_params(struct qpnp_qg *chip)
 
 	if (chip->udata.param[QG_ESR_CHARGE_DELTA].valid) {
 		esr = chip->udata.param[QG_ESR_CHARGE_DELTA].data;
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		if (abs((int)esr) < 10) {
+			qg_sdam_write(SDAM_ESR_CHARGE_DELTA, esr);
+			qg_dbg(chip, QG_DEBUG_ESR,
+				"SDAM store ESR_CHARGE_DELTA=0x%x\n", esr);
+		}
+#else
 		qg_sdam_write(SDAM_ESR_CHARGE_DELTA, esr);
 		qg_dbg(chip, QG_DEBUG_ESR,
 			"SDAM store ESR_CHARGE_DELTA=%d\n", esr);
+#endif
 	}
 
 	if (chip->udata.param[QG_ESR_DISCHARGE_DELTA].valid) {
 		esr = chip->udata.param[QG_ESR_DISCHARGE_DELTA].data;
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		if (abs((int)esr) < 10) {
+			qg_sdam_write(SDAM_ESR_DISCHARGE_DELTA, esr);
+			qg_dbg(chip, QG_DEBUG_ESR,
+				"SDAM store ESR_DISCHARGE_DELTA=0x%x\n", esr);
+		}
+#else
 		qg_sdam_write(SDAM_ESR_DISCHARGE_DELTA, esr);
 		qg_dbg(chip, QG_DEBUG_ESR,
 			"SDAM store ESR_DISCHARGE_DELTA=%d\n", esr);
+#endif
 	}
 
 	if (chip->udata.param[QG_ESR_CHARGE_SF].valid) {
@@ -1134,6 +1193,10 @@ static void process_udata_work(struct work_struct *work)
 			struct qpnp_qg, udata_work);
 	int rc;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	mutex_lock(&chip->data_lock);
+#endif
+
 	if (chip->udata.param[QG_CC_SOC].valid)
 		chip->cc_soc = chip->udata.param[QG_CC_SOC].data;
 
@@ -1160,6 +1223,18 @@ static void process_udata_work(struct work_struct *work)
 			chip->catch_up_soc = chip->udata.param[QG_SOC].data;
 		}
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (chip->catch_up_soc == 0) {
+		int vbat_uv = 0;
+		int vcutoff_uv = chip->dt.vbatt_cutoff_mv * 1000;
+		qg_get_battery_voltage(chip, &vbat_uv);
+		if (vbat_uv >= vcutoff_uv) {
+			pr_debug("%d >= %d, keep report soc=1\n", vbat_uv, vcutoff_uv);
+			chip->catch_up_soc = 1;
+		}
+	}
+#endif
+
 		qg_scale_soc(chip, chip->force_soc);
 		chip->force_soc = false;
 
@@ -1179,6 +1254,12 @@ static void process_udata_work(struct work_struct *work)
 	if (chip->udata.param[QG_ESR].valid)
 		chip->esr_last = chip->udata.param[QG_ESR].data;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	pr_err("userspace write rbat=%d, esr=%d\n", 
+		chip->sdam_data[SDAM_RBAT_MOHM],
+		chip->esr_last);
+#endif
+
 	if (chip->esr_actual != -EINVAL && chip->udata.param[QG_ESR].valid) {
 		chip->esr_nominal = chip->udata.param[QG_ESR].data;
 		if (chip->qg_psy)
@@ -1192,6 +1273,11 @@ static void process_udata_work(struct work_struct *work)
 		(chip->batt_soc != INT_MIN) ? chip->batt_soc : -EINVAL,
 		(chip->cc_soc != INT_MIN) ? chip->cc_soc : -EINVAL,
 		chip->full_soc, chip->esr_last);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	mutex_unlock(&chip->data_lock);
+#endif
+
 	vote(chip->awake_votable, UDATA_READY_VOTER, false, 0);
 }
 
@@ -1317,8 +1403,18 @@ static irqreturn_t qg_vbat_empty_handler(int irq, void *data)
 
 	pr_warn("VBATT EMPTY SOC = 0\n");
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	mutex_lock(&chip->soc_lock);
+#endif
 	chip->catch_up_soc = 0;
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	mutex_unlock(&chip->soc_lock);
+#endif
 	qg_scale_soc(chip, true);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	mutex_lock(&chip->data_lock);
+#endif
 
 	qg_sdam_read(SDAM_OCV_UV, &ocv_uv);
 	chip->sdam_data[SDAM_SOC] = 0;
@@ -1326,6 +1422,10 @@ static irqreturn_t qg_vbat_empty_handler(int irq, void *data)
 	chip->sdam_data[SDAM_VALID] = 1;
 
 	qg_store_soc_params(chip);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	mutex_unlock(&chip->data_lock);
+#endif
 
 	if (chip->qg_psy)
 		power_supply_changed(chip->qg_psy);
@@ -1407,6 +1507,21 @@ static struct qg_irq_info qg_irqs[] = {
 	},
 };
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static int qg_awake_cb(struct votable *votable, void *data, int awake,
+			const char *client)
+{
+	struct qpnp_qg *chip = data;
+
+	if (awake)
+		__pm_stay_awake(chip->qg_ws);
+	else
+		__pm_relax(chip->qg_ws);
+
+	pr_debug("client: %s awake: %d\n", client, awake);
+	return 0;
+}
+#else
 static int qg_awake_cb(struct votable *votable, void *data, int awake,
 			const char *client)
 {
@@ -1424,6 +1539,7 @@ static int qg_awake_cb(struct votable *votable, void *data, int awake,
 	pr_debug("client: %s awake: %d\n", client, awake);
 	return 0;
 }
+#endif
 
 static int qg_fifo_irq_disable_cb(struct votable *votable, void *data,
 				int disable, const char *client)
@@ -2141,10 +2257,24 @@ static int qg_psy_get_property(struct power_supply *psy,
 		rc = get_cycle_count(chip->counter, &pval->intval);
 		break;
 	case POWER_SUPPLY_PROP_TIME_TO_FULL_AVG:
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		if (chip->dt.tt_enabled)
+			rc = ttf_get_time_to_full(chip->ttf, &pval->intval);
+		else
+			rc = -ENODATA;
+#else
 		rc = ttf_get_time_to_full(chip->ttf, &pval->intval);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG:
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		if (chip->dt.tt_enabled)
+			rc = ttf_get_time_to_empty(chip->ttf, &pval->intval);
+		else
+			rc = -ENODATA;
+#else
 		rc = ttf_get_time_to_empty(chip->ttf, &pval->intval);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_ESR_ACTUAL:
 		pval->intval = (chip->esr_actual == -EINVAL) ?  -EINVAL :
@@ -2180,8 +2310,16 @@ static int qg_psy_get_property(struct power_supply *psy,
 		break;
 	default:
 		pr_debug("Unsupported property %d\n", psp);
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		rc = -EINVAL;
+#endif
 		break;
 	}
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (rc < 0)
+		rc = -ENODATA;
+#endif
 
 	return rc;
 }
@@ -2343,6 +2481,7 @@ out:
 	return 0;
 }
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 static int qg_parallel_status_update(struct qpnp_qg *chip)
 {
 	int rc;
@@ -2373,6 +2512,7 @@ static int qg_parallel_status_update(struct qpnp_qg *chip)
 
 	return 0;
 }
+#endif
 
 static int qg_input_status_update(struct qpnp_qg *chip)
 {
@@ -2564,9 +2704,11 @@ static void qg_status_change_work(struct work_struct *work)
 	qg_dbg(chip, QG_DEBUG_STATUS, "charge_status=%d charge_done=%d\n",
 			chip->charge_status, chip->charge_done);
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	rc = qg_parallel_status_update(chip);
 	if (rc < 0)
 		pr_err("Failed to update parallel-status, rc=%d\n", rc);
+#endif
 
 	rc = qg_input_status_update(chip);
 	if (rc < 0)
@@ -2594,7 +2736,13 @@ static void qg_status_change_work(struct work_struct *work)
 	if (rc < 0)
 		pr_err("Failed in charge_full_update, rc=%d\n", rc);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (chip->dt.tt_enabled)
+		ttf_update(chip->ttf, input_present);
+#else
 	ttf_update(chip->ttf, input_present);
+#endif
+
 out:
 	pm_relax(chip->dev);
 }
@@ -2608,8 +2756,15 @@ static int qg_notifier_cb(struct notifier_block *nb,
 	if (event != PSY_EVENT_PROP_CHANGED)
 		return NOTIFY_OK;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (work_pending(&chip->qg_status_change_work)) {
+		pr_debug("qg_status_change_work pending now, skip\n");
+		return NOTIFY_OK;
+	}
+#else
 	if (work_pending(&chip->qg_status_change_work))
 		return NOTIFY_OK;
+#endif
 
 	if ((strcmp(psy->desc->name, "battery") == 0)
 		|| (strcmp(psy->desc->name, "parallel") == 0)
@@ -2620,7 +2775,12 @@ static int qg_notifier_cb(struct notifier_block *nb,
 		 * a mutex lock and this is executed in an atomic context.
 		 */
 		pm_stay_awake(chip->dev);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		queue_work(private_chg_wq, &chip->qg_status_change_work);
+#else
 		schedule_work(&chip->qg_status_change_work);
+#endif
 	}
 
 	return NOTIFY_OK;
@@ -2686,6 +2846,16 @@ static ssize_t qg_device_read(struct file *file, char __user *buf, size_t count,
 		goto fail_read;
 	}
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if ((chip->sdam_data[SDAM_RBAT_MOHM] != 0) &&
+		(chip->sdam_data[SDAM_RBAT_MOHM] > 170 ||
+		chip->sdam_data[SDAM_RBAT_MOHM] < 80)) {
+		chip->kdata.param[QG_CLEAR_LEARNT_DATA].data = 1;
+		chip->kdata.param[QG_CLEAR_LEARNT_DATA].valid = true;
+		pr_err("fg rbatt(%d) abnormal, reset hvdcp_opti data\n", 
+				chip->sdam_data[SDAM_RBAT_MOHM]);
+	}
+#endif
 
 	if (copy_to_user(buf, &chip->kdata, data_size)) {
 		pr_err("Failed in copy_to_user\n");
@@ -2743,8 +2913,16 @@ static ssize_t qg_device_write(struct file *file, const char __user *buf,
 
 	rc = data_size;
 	vote(chip->awake_votable, UDATA_READY_VOTER, true, 0);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	mutex_unlock(&chip->data_lock);
+	qg_dbg(chip, QG_DEBUG_DEVICE, "QG write complete size=%d\n", rc);
+	queue_work(private_chg_wq, &chip->udata_work);
+	return rc;
+#else
 	schedule_work(&chip->udata_work);
 	qg_dbg(chip, QG_DEBUG_DEVICE, "QG write complete size=%d\n", rc);
+#endif
 fail:
 	mutex_unlock(&chip->data_lock);
 	return rc;
@@ -3108,6 +3286,20 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 		pr_err("Failed to read shutdown params rc=%d\n", rc);
 		goto use_pon_ocv;
 	}
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (abs((int)shutdown[SDAM_ESR_CHARGE_DELTA]) > 10) {
+		pr_err("found abnormal esr chg delta(0x%x)\n", 
+			shutdown[SDAM_ESR_CHARGE_DELTA]);
+		qg_sdam_write(SDAM_ESR_CHARGE_DELTA, 0);
+	}
+	if (abs((int)shutdown[SDAM_ESR_DISCHARGE_DELTA]) > 10) {
+		pr_err("found abnormal esr dischg delta(0x%x)\n", 
+			shutdown[SDAM_ESR_DISCHARGE_DELTA]);
+		qg_sdam_write(SDAM_ESR_DISCHARGE_DELTA, 0);
+	}
+#endif
+
 	shutdown_temp = sign_extend32(shutdown[SDAM_TEMP], 15);
 
 	rc = lookup_soc_ocv(&pon_soc, ocv[S7_PON_OCV].ocv_uv, batt_temp, false);
@@ -3130,6 +3322,38 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 	 * 2. The device was powered off for < ignore_shutdown_time
 	 * 2. Batt temp has not changed more than shutdown_temp_diff
 	 */
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (!shutdown[SDAM_VALID]) {
+		pr_err("WARNING: sdram data invalid\n");
+		goto use_pon_ocv;
+	}
+
+	if (!is_between(0, chip->dt.ignore_shutdown_soc_secs,
+			abs(rtc_sec - shutdown[SDAM_TIME_SEC]))) {
+		pr_err("WARNING: too long time interval(%ld,%d,%d)\n",
+				rtc_sec, shutdown[SDAM_TIME_SEC],
+				chip->dt.ignore_shutdown_soc_secs);
+		goto use_pon_ocv;
+	}
+
+	if (!is_between(0, chip->dt.shutdown_temp_diff,
+			abs(shutdown_temp -  batt_temp)) &&
+			(shutdown_temp < 0 || batt_temp < 0)) {
+		pr_err("WARNING: too big gaps of temperature(%d,%d,%d)\n",
+				shutdown_temp, batt_temp, 
+				chip->dt.shutdown_temp_diff);
+		goto use_pon_ocv;
+	}
+
+	if ((chip->dt.shutdown_soc_threshold != -EINVAL) &&
+			!is_between(0, chip->dt.shutdown_soc_threshold,
+			abs(pon_soc - shutdown[SDAM_SOC]))) {
+		pr_err("WARNING: too big gaps of soc(%d,%d,%d)\n",
+				pon_soc, shutdown[SDAM_SOC], 
+				chip->dt.shutdown_soc_threshold);
+		goto use_pon_ocv;
+	}
+#else
 	if (!shutdown[SDAM_VALID])
 		goto use_pon_ocv;
 
@@ -3146,6 +3370,7 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 			!is_between(0, chip->dt.shutdown_soc_threshold,
 			abs(pon_soc - shutdown[SDAM_SOC])))
 		goto use_pon_ocv;
+#endif
 
 	use_pon_ocv = false;
 	ocv_uv = shutdown[SDAM_OCV_UV];
@@ -4361,7 +4586,9 @@ static int process_resume(struct qpnp_qg *chip)
 		chip->suspend_data = false;
 	}
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	schedule_delayed_work(&chip->ttf->ttf_work, 0);
+#endif
 
 	return rc;
 }
@@ -4563,7 +4790,9 @@ static int qpnp_qg_probe(struct platform_device *pdev)
 			pr_err("Error in restoring cycle_count, rc=%d\n", rc);
 			return rc;
 		}
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 		schedule_delayed_work(&chip->ttf->ttf_work, 10000);
+#endif
 	}
 
 	rc = qg_determine_pon_soc(chip);
@@ -4571,6 +4800,12 @@ static int qpnp_qg_probe(struct platform_device *pdev)
 		pr_err("Failed to determine initial state, rc=%d\n", rc);
 		goto fail_device;
 	}
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	chip->qg_ws = wakeup_source_register("qg_voted_ws");
+	if (!chip->qg_ws)
+		goto fail_device;
+#endif
 
 	chip->awake_votable = create_votable("QG_WS", VOTE_SET_ANY,
 					 qg_awake_cb, chip);
@@ -4635,6 +4870,11 @@ fail_device:
 	device_destroy(chip->qg_class, chip->dev_no);
 	cdev_del(&chip->qg_cdev);
 	unregister_chrdev_region(chip->dev_no, 1);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	wakeup_source_unregister(chip->qg_ws);
+	pr_err("QG probe failed with err:%d\n", rc);
+#endif
 	return rc;
 }
 
@@ -4656,6 +4896,9 @@ static int qpnp_qg_remove(struct platform_device *pdev)
 	mutex_destroy(&chip->soc_lock);
 	if (chip->awake_votable)
 		destroy_votable(chip->awake_votable);
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	wakeup_source_unregister(chip->qg_ws);
+#endif
 
 	return 0;
 }

@@ -160,6 +160,16 @@ msm_drm-$(CONFIG_DRM_MSM_DSI_STAGING) += dsi-staging/dsi_phy.o \
 				dsi-staging/dsi_panel.o \
 				dsi-staging/dsi_clk_manager.o \
 				dsi-staging/dsi_display_test.o
+ifeq ($(CONFIG_PXLW_IRIS3),y)
+msm_drm-$(CONFIG_DRM_MSM_DSI_STAGING) += dsi-staging/dsi_iris3_ioctl.o \
+				dsi-staging/dsi_iris3_lightup.o \
+				dsi-staging/dsi_iris3_lightup_ocp.o \
+				dsi-staging/dsi_iris3_lp.o \
+				dsi-staging/dsi_iris3_lut.o \
+				dsi-staging/dsi_iris3_pq.o \
+				dsi-staging/dsi_iris3_i2c.o
+
+endif
 
 msm_drm-$(CONFIG_DSI_PARSER) += dsi-staging/dsi_parser.o
 

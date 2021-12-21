@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  */
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#define pr_fmt(fmt) "[PE]:" fmt
+#endif
+
 #include <linux/completion.h>
 #include <linux/delay.h>
 #include <linux/hrtimer.h>
@@ -199,6 +203,36 @@ enum vdm_state {
 };
 
 static void *usbpd_ipc_log;
+#if defined(CONFIG_TCT_SM6150_COMMON)
+enum {
+	LOG_LEVEL_ERR = BIT(0),
+	LOG_LEVEL_DEBUG = BIT(1),
+	LOG_LEVEL_ALL = 0xFF,
+};
+
+static int pdlog = CONFIG_USB_PD_LOG_LVL;
+module_param(pdlog, int, S_IRUGO|S_IWUSR);
+
+#define usbpd_err(dev, fmt, ...) \
+	do { \
+		if (pdlog & LOG_LEVEL_ERR) { \
+			ipc_log_string(usbpd_ipc_log, "%s(): " fmt, __func__, \
+					##__VA_ARGS__); \
+			pr_err_ratelimited("%s: " fmt, __func__, ##__VA_ARGS__); \
+		} \
+	} while (0)
+
+#define usbpd_dbg(dev, fmt, ...) \
+	do { \
+		if (pdlog & LOG_LEVEL_DEBUG) \
+			ipc_log_string(usbpd_ipc_log, "%s(): " fmt, __func__, \
+					##__VA_ARGS__); \
+			pr_debug("%s: " fmt, __func__, ##__VA_ARGS__); \
+	} while (0)
+
+#define usbpd_info usbpd_err
+#define usbpd_warn usbpd_dbg
+#else
 #define usbpd_dbg(dev, fmt, ...) do { \
 	ipc_log_string(usbpd_ipc_log, "%s: %s: " fmt, dev_name(dev), __func__, \
 			##__VA_ARGS__); \
@@ -222,8 +256,13 @@ static void *usbpd_ipc_log;
 			##__VA_ARGS__); \
 	dev_err(dev, fmt, ##__VA_ARGS__); \
 	} while (0)
+#endif
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+#define NUM_LOG_PAGES		(30)
+#else
 #define NUM_LOG_PAGES		10
+#endif
 
 /* Timeouts (in ms) */
 #define ERROR_RECOVERY_TIME	25
@@ -357,11 +396,24 @@ static void *usbpd_ipc_log;
 static bool check_vsafe0v = true;
 module_param(check_vsafe0v, bool, 0600);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static int min_sink_current = 500;
+#else
 static int min_sink_current = 900;
+#endif
 module_param(min_sink_current, int, 0600);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+static const u32 default_src_caps[] = { 0x26019032 };	/* VSafe5V @ 0.5A */
+#else
 static const u32 default_src_caps[] = { 0x36019096 };	/* VSafe5V @ 1.5A */
+#endif
+
+#if defined(CONFIG_TCT_PD_PATCH)
+static const u32 default_snk_caps[] = { 0x260190C3 };	/* VSafe5V @ 1.95A */
+#else
 static const u32 default_snk_caps[] = { 0x2601912C };	/* VSafe5V @ 3A */
+#endif
 
 struct vdm_tx {
 	u32			data[PD_MAX_DATA_OBJ];
@@ -529,6 +581,10 @@ static unsigned int get_connector_type(struct usbpd *pd)
 
 static inline void stop_usb_host(struct usbpd *pd)
 {
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	usbpd_dbg(&pd->dev, "stop usb host \n");
+#endif
+
 	extcon_set_state_sync(pd->extcon, EXTCON_USB_HOST, 0);
 }
 
@@ -537,11 +593,19 @@ static inline void start_usb_host(struct usbpd *pd, bool ss)
 	enum plug_orientation cc = usbpd_get_plug_orientation(pd);
 	union extcon_property_value val;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	usbpd_dbg(&pd->dev, "start usb host with ss:%d, cc=%d\n", ss, cc);
+#endif
+
 	val.intval = (cc == ORIENTATION_CC2);
 	extcon_set_property(pd->extcon, EXTCON_USB_HOST,
 			EXTCON_PROP_USB_TYPEC_POLARITY, val);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	val.intval = 0;
+#else
 	val.intval = ss;
+#endif
 	extcon_set_property(pd->extcon, EXTCON_USB_HOST,
 			EXTCON_PROP_USB_SS, val);
 
@@ -550,6 +614,10 @@ static inline void start_usb_host(struct usbpd *pd, bool ss)
 
 static inline void stop_usb_peripheral(struct usbpd *pd)
 {
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	usbpd_dbg(&pd->dev, "stop usb peripheral \n");
+#endif
+
 	extcon_set_state_sync(pd->extcon, EXTCON_USB, 0);
 }
 
@@ -558,14 +626,26 @@ static inline void start_usb_peripheral(struct usbpd *pd)
 	enum plug_orientation cc = usbpd_get_plug_orientation(pd);
 	union extcon_property_value val;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	usbpd_dbg(&pd->dev, "start usb peripheral with cc=%d\n", cc);
+#endif
+
 	val.intval = (cc == ORIENTATION_CC2);
 	extcon_set_property(pd->extcon, EXTCON_USB,
 			EXTCON_PROP_USB_TYPEC_POLARITY, val);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	val.intval = 0;
+#else
 	val.intval = 1;
+#endif
 	extcon_set_property(pd->extcon, EXTCON_USB, EXTCON_PROP_USB_SS, val);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	val.intval = 0;
+#else
 	val.intval = pd->typec_mode > POWER_SUPPLY_TYPEC_SOURCE_DEFAULT ? 1 : 0;
+#endif
 	extcon_set_property(pd->extcon, EXTCON_USB,
 			EXTCON_PROP_USB_TYPEC_MED_HIGH_CURRENT, val);
 
@@ -1323,12 +1403,23 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 	unsigned long flags;
 	int ret;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	usbpd_dbg(&pd->dev, "cs: %d->%d\n",
+			pd->current_state, next_state);
+	usbpd_dbg(&pd->dev, "pr:%d, dr:%d, tm:%d, ips:%d, hrr:%d\n",
+			pd->current_pr, pd->current_dr, 
+			pd->typec_mode, pd->in_pr_swap, 
+			pd->hard_reset_recvd);
+#endif
+
 	if (pd->hard_reset_recvd) /* let usbpd_sm handle it */
 		return;
 
+#if !defined(CONFIG_TCT_SM6150_COMMON)
 	usbpd_dbg(&pd->dev, "%s -> %s\n",
 			usbpd_state_strings[pd->current_state],
 			usbpd_state_strings[next_state]);
+#endif
 
 	pd->current_state = next_state;
 
@@ -2430,11 +2521,23 @@ enable_reg:
 			return -EAGAIN;
 		}
 	}
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (!pd->vbus_enabled) {
+		usbpd_err(&pd->dev, "[Enable]:otg_vbus\n");
+		ret = regulator_enable(pd->vbus);
+		if (ret)
+			usbpd_err(&pd->dev, "Unable to enable vbus (%d)\n", ret);
+
+		pd->vbus_enabled = true;
+	}
+#else
 	ret = regulator_enable(pd->vbus);
 	if (ret)
 		usbpd_err(&pd->dev, "Unable to enable vbus (%d)\n", ret);
 	else
 		pd->vbus_enabled = true;
+#endif
 
 	count = 10;
 	/*
@@ -2487,6 +2590,12 @@ static void usbpd_sm(struct work_struct *w)
 	}
 	spin_unlock_irqrestore(&pd->rx_lock, flags);
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if(rx_msg)
+		usbpd_dbg(&pd->dev, "rx_msg={%04x,%04x}\n",
+				rx_msg->hdr, rx_msg->data_len);
+#endif
+
 	/* Disconnect? */
 	if (pd->current_pr == PR_NONE) {
 		if (pd->current_state == PE_UNKNOWN &&
@@ -2529,15 +2638,24 @@ static void usbpd_sm(struct work_struct *w)
 				POWER_SUPPLY_PROP_PD_ACTIVE, &val);
 
 		if (pd->vbus_enabled) {
+#if defined(CONFIG_TCT_SM6150_COMMON)
+			usbpd_err(&pd->dev, "[Disable]:otg_vbus\n");
+#endif
 			regulator_disable(pd->vbus);
 			pd->vbus_enabled = false;
 		}
 
 		reset_vdm_state(pd);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		stop_usb_host(pd);
+		stop_usb_peripheral(pd);
+#else
 		if (pd->current_dr == DR_UFP)
 			stop_usb_peripheral(pd);
 		else if (pd->current_dr == DR_DFP)
 			stop_usb_host(pd);
+#endif
 
 		pd->current_dr = DR_NONE;
 
@@ -3464,9 +3582,14 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 			return ret;
 		}
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		if (val.intval == POWER_SUPPLY_TYPE_USB ||
+			val.intval == POWER_SUPPLY_TYPE_USB_CDP) {
+#else
 		if (val.intval == POWER_SUPPLY_TYPE_USB ||
 			val.intval == POWER_SUPPLY_TYPE_USB_CDP ||
 			val.intval == POWER_SUPPLY_TYPE_USB_FLOAT) {
+#endif
 			usbpd_dbg(&pd->dev, "typec mode:%d type:%d\n",
 				typec_mode, val.intval);
 			pd->typec_mode = typec_mode;
@@ -3553,8 +3676,12 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 
 		pd->current_pr = PR_SINK;
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+		eval.intval = 0;
+#else
 		eval.intval = typec_mode > POWER_SUPPLY_TYPEC_SOURCE_DEFAULT ?
 				1 : 0;
+#endif
 		extcon_set_property(pd->extcon, EXTCON_USB,
 				EXTCON_PROP_USB_TYPEC_MED_HIGH_CURRENT, eval);
 		break;
@@ -3645,6 +3772,13 @@ static int usbpd_dr_set_property(struct dual_role_phy_instance *dual_role,
 	union power_supply_propval value;
 	int wait_count = 5;
 	bool do_swap = false;
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (1) {
+		pr_err("setting %d to %d unsupported\n", prop, *val);
+		return -ENOTSUPP;
+	}
+#endif
 
 	if (!pd)
 		return -ENODEV;
@@ -3814,6 +3948,12 @@ static int usbpd_dr_prop_writeable(struct dual_role_phy_instance *dual_role,
 		enum dual_role_property prop)
 {
 	struct usbpd *pd = dual_role_get_drvdata(dual_role);
+
+#if defined(CONFIG_TCT_SM6150_COMMON)
+	if (1) {
+		return 0;
+	}
+#endif
 
 	switch (prop) {
 	case DUAL_ROLE_PROP_MODE:
@@ -4061,6 +4201,11 @@ static ssize_t select_pdo_store(struct device *dev,
 	int src_cap_id;
 	int pdo, uv = 0, ua = 0;
 	int ret;
+
+#if defined(CONFIG_TCT_PD_PATCH)
+	usbpd_err(&pd->dev, "NOT support PPS!\n");
+	return -ENOTSUPP;
+#endif
 
 	mutex_lock(&pd->swap_lock);
 

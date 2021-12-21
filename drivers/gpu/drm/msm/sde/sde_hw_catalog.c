@@ -21,6 +21,11 @@
 #include "sde_hw_catalog.h"
 #include "sde_hw_catalog_format.h"
 #include "sde_kms.h"
+/* MODIFIED-BEGIN by hongwei.tian, 2019-06-18,BUG-7892763*/
+#if defined(CONFIG_PXLW_IRIS3)
+#include "dsi_iris3_api.h"
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7892763*/
 
 /*************************************************************
  * MACRO DEFINITION
@@ -1165,6 +1170,18 @@ static void _sde_sspp_setup_vig(struct sde_mdss_cfg *sde_cfg,
 	if (PROP_VALUE_ACCESS(prop_value, VIG_INVERSE_PMA, 0))
 		set_bit(SDE_SSPP_INVERSE_PMA, &sspp->features);
 
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	/* MODIFIED-BEGIN by hongwei.tian, 2019-06-18,BUG-7892763*/
+	if (iris3_abypass_mode_get() == PASS_THROUGH_MODE) {
+		clear_bit(SDE_SSPP_PCC, &sspp->features);
+		clear_bit(SDE_SSPP_HSIC, &sspp->features);
+		clear_bit(SDE_SSPP_MEMCOLOR, &sspp->features);
+		//clear_bit(SDE_SSPP_IGC, &sspp->features);
+	}
+	/* MODIFIED-END by hongwei.tian,BUG-7892763*/
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	sblk->format_list = sde_cfg->vig_formats;
 	sblk->virt_format_list = sde_cfg->virt_vig_formats;
 }
@@ -2098,6 +2115,23 @@ static void _sde_dspp_setup_blocks(struct sde_mdss_cfg *sde_cfg,
 		sblk->sixzone.len = 0;
 		set_bit(SDE_DSPP_VLUT, &dspp->features);
 	}
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	/* MODIFIED-BEGIN by hongwei.tian, 2019-06-18,BUG-7892763*/
+	if (iris3_abypass_mode_get() == PASS_THROUGH_MODE) {
+		clear_bit(SDE_DSPP_VLUT, &dspp->features);
+		clear_bit(SDE_DSPP_SIXZONE, &dspp->features);
+		clear_bit(SDE_DSPP_MEMCOLOR, &dspp->features);
+		clear_bit(SDE_DSPP_HSIC, &dspp->features);
+		// clear_bit(SDE_DSPP_IGC, &dspp->features);
+		// clear_bit(SDE_DSPP_PCC, &dspp->features);
+		// clear_bit(SDE_DSPP_GC, &dspp->features);
+		// clear_bit(SDE_DSPP_GAMUT, &dspp->features);
+		clear_bit(SDE_DSPP_HIST, &dspp->features);
+	}
+	/* MODIFIED-END by hongwei.tian,BUG-7892763*/
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 }
 
 static void _sde_inline_rot_parse_dt(struct device_node *np,
@@ -2404,6 +2438,14 @@ static int sde_dspp_parse_dt(struct device_node *np,
 			sblk->ad.version = PROP_VALUE_ACCESS(ad_prop_value,
 				AD_VERSION, 0);
 			set_bit(SDE_DSPP_AD, &dspp->features);
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+			/* MODIFIED-BEGIN by hongwei.tian, 2019-06-18,BUG-7892763*/
+			if (iris3_abypass_mode_get() == PASS_THROUGH_MODE)
+				clear_bit(SDE_DSPP_AD, &dspp->features);
+				/* MODIFIED-END by hongwei.tian,BUG-7892763*/
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 		}
 	}
 

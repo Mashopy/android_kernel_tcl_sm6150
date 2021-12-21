@@ -143,12 +143,30 @@ struct dsi_panel_reset_config {
 	u32 mode_sel_state;
 };
 
+#if defined(CONFIG_PXLW_IRIS3) || defined(CONFIG_PXLW_IRIS5)
+struct dsi_iris_reset_config {
+	int iris_ext_clk_gpio;
+	int iris_vdd_gpio;
+	int iris_rst_gpio;
+	int abyp_gpio;
+};
+#endif
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+struct dsi_board_id_config {
+	int board_id1_gpio;
+	int board_id1;
+};
+#endif
+
 enum esd_check_status_mode {
 	ESD_MODE_REG_READ,
 	ESD_MODE_SW_BTA,
 	ESD_MODE_PANEL_TE,
 	ESD_MODE_SW_SIM_SUCCESS,
 	ESD_MODE_SW_SIM_FAILURE,
+#ifdef CONFIG_TCT_SM6150_T1
+	ESD_MODE_I2C_REG_READ,
+#endif
 	ESD_MODE_MAX
 };
 
@@ -164,6 +182,15 @@ struct drm_panel_esd_config {
 	u8 *status_buf;
 	u32 groups;
 };
+
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-23,BUG-7804622*/
+struct drm_panel_otp_config {
+	bool otp_enabled;
+	struct dsi_panel_cmd_set otp_cmd;
+	u32 *status_cmds_rlen;
+	u8 *status_buf;
+};
+/* MODIFIED-END by hongwei.tian,BUG-7804622*/
 
 struct dsi_panel {
 	const char *name;
@@ -194,6 +221,7 @@ struct dsi_panel {
 	struct dsi_pinctrl_info pinctrl;
 	struct drm_panel_hdr_properties hdr_props;
 	struct drm_panel_esd_config esd_config;
+	struct drm_panel_otp_config otp_config; // MODIFIED by hongwei.tian, 2019-05-23,BUG-7804622
 
 	struct dsi_parser_utils utils;
 
@@ -213,6 +241,13 @@ struct dsi_panel {
 	bool sync_broadcast_en;
 	int power_mode;
 	enum dsi_panel_physical_type panel_type;
+#if defined(CONFIG_PXLW_IRIS3) || defined(CONFIG_PXLW_IRIS5)
+	struct dsi_iris_reset_config iris_reset_config;
+	struct clk *div_clk1;
+#endif
+#ifdef CONFIG_TCT_SM6150_T1_PRO
+	struct dsi_board_id_config board_id_config;
+#endif
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -325,4 +360,9 @@ int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel);
 
 void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
 
+#if defined(CONFIG_PXLW_IRIS3)
+int dsi_iris_vdd_on(struct dsi_panel *panel);
+int panel_set_lp1(struct dsi_panel *panel);
+int panel_set_nolp(struct dsi_panel *panel);
+#endif
 #endif /* _DSI_PANEL_H_ */

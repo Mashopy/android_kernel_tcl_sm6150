@@ -221,4 +221,6 @@ source "drivers/sensors/Kconfig"
 
 source "drivers/esoc/Kconfig"
 
+#[NFC]ADD ST NFC by na.long on 2019/04/26, 7669988
+source "drivers/nfc/st21nfcd/Kconfig"
 endmenu

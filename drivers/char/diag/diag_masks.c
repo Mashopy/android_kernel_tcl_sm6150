@@ -2534,3 +2534,4 @@ void diag_masks_exit(void)
 	diag_event_mask_exit();
 	kfree(driver->buf_feature_mask_update);
 }
+

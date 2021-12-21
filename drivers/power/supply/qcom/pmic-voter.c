@@ -607,6 +607,25 @@ out:
 		return NULL;
 }
 
+#if defined(CONFIG_TCT_SM6150_COMMON)
+void dump_icl_votable(struct votable *votable)
+{
+	int i;
+
+	if (!votable)
+		return;
+
+	for (i=0; i<NUM_MAX_CLIENTS; i++) {
+		if ((votable->votes[i].enabled == true)
+			&& (votable->votes[i].value == 0)
+			&& votable->client_strs[i]) {
+			pr_emerg("WARNING: voter:'%s' abnormal!!! \n",
+					votable->client_strs[i]);
+		}
+	}
+}
+#endif
+
 static int force_active_get(void *data, u64 *val)
 {
 	struct votable *votable = data;

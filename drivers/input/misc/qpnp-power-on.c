@@ -2026,6 +2026,11 @@ static int qpnp_pon_configure_s3_reset(struct qpnp_pon *pon)
 	u8 src_val;
 	int rc;
 
+/* MODIFIED-BEGIN by hongwei.tian, 2019-05-11,BUG-7765033*/
+#ifdef CONFIG_TCT_GCF
+	return 0;
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-7765033*/
 	/* Program S3 reset debounce time */
 	rc = of_property_read_u32(dev->of_node, "qcom,s3-debounce", &debounce);
 	if (!rc) {

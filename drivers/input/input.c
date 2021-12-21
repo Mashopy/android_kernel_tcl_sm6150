@@ -686,14 +686,23 @@ static void input_dev_release_keys(struct input_dev *dev)
 
 	if (is_event_supported(EV_KEY, dev->evbit, EV_MAX)) {
 		for_each_set_bit(code, dev->key, KEY_CNT) {
-			input_pass_event(dev, EV_KEY, code, 0);
-			need_sync = true;
+/* MODIFIED-BEGIN by hongwei.tian, 2019-04-28,BUG-7674025*/
+//			printk(KERN_ERR"release_keys 0x%x !! \n",code);
+			if(code == 252)
+				continue;
+			if(__test_and_clear_bit(code, dev->key))
+			{
+				input_pass_event(dev, EV_KEY, code, 0);
+				need_sync = true;
+//				printk(KERN_ERR"reset_keys 0x%x !! \n",code);
+			}
 		}
 
 		if (need_sync)
 			input_pass_event(dev, EV_SYN, SYN_REPORT, 1);
 
-		memset(dev->key, 0, sizeof(dev->key));
+//		memset(dev->key, 0, sizeof(dev->key));
+/* MODIFIED-END by hongwei.tian,BUG-7674025*/
 	}
 }
 

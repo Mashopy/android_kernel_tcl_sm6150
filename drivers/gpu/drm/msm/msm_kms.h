@@ -119,6 +119,11 @@ struct msm_kms_funcs {
 	int (*cont_splash_config)(struct msm_kms *kms);
 	/* check for continuous splash status */
 	bool (*check_for_splash)(struct msm_kms *kms);
+/* MODIFIED-BEGIN by Haojun Chen, 2019-05-11,BUG-7765094*/
+#if defined(CONFIG_PXLW_IRIS3)
+	int (*iris3_operate)(struct msm_kms *kms, u32 operate_type, struct msm_iris_operate_value *operate_value);
+#endif
+/* MODIFIED-END by Haojun Chen,BUG-7765094*/
 	/* topology information */
 	int (*get_mixer_count)(const struct msm_kms *kms,
 			const struct drm_display_mode *mode,
